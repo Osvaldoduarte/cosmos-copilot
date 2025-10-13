@@ -1,0 +1,11 @@
+# Arquivo: requirements.txt (Versão Final e Corrigida)
+fastapi
+uvicorn[standard]
+python-dotenv
+langchain
+langchain-community
+langchain-google-genai
+sentence-transformers
+chromadb
+google-cloud-texttospeech
+numpy==1.26.4
