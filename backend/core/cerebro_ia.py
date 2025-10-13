@@ -1,7 +1,6 @@
-# Arquivo: backend/core/cerebro_ia.py (Versão Corrigida e Limpa)
-
 import os
 import json
+import chromadb
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from dotenv import load_dotenv
@@ -13,6 +12,7 @@ from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_core.pydantic_v1 import BaseModel, Field
 
+
 # --- CONFIGURAÇÕES GLOBAIS ---
 CORE_DIR = Path(__file__).parent.resolve()
 BACKEND_DIR = CORE_DIR.parent.resolve()
@@ -22,6 +22,29 @@ CHROMA_CONVERSAS_PATH = str(BACKEND_DIR / "chroma_db_conversas")
 PLAYBOOK_PATH = str(DATA_DIR / "playbook_vendas.json")
 GEMINI_MODEL_NAME = "gemini-2.5-flash"
 
+# Carrega as variáveis de ambiente (do arquivo .env)
+load_dotenv()
+
+# --- NOVA LÓGICA DE CONEXÃO AO CHROMA DB ---
+CHROMA_HOST = os.environ.get("CHROMA_HOST")
+api_key = os.environ.get("GEMINI_API_KEY")
+
+if not api_key:
+    raise ValueError("A variável de ambiente GEMINI_API_KEY não foi definida.")
+
+# Inicializa o modelo de embeddings que será usado em ambos os casos
+embeddings_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
+
+if CHROMA_HOST:
+    print("✅ Conectando ao banco de dados ChromaDB remoto no Cloud Run...")
+    # Se a variável CHROMA_HOST existe, conecta-se ao servidor na nuvem
+    # O port 443 e ssl=True são para conexões HTTPS seguras
+    chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=443, ssl=True)
+else:
+    print("ℹ️  Usando banco de dados ChromaDB local. (Para deploy, configure CHROMA_HOST)")
+    # Se não, continua usando o banco de dados da pasta local
+    CHROMA_PATH = str(Path(__file__).parent.parent / "chroma_db_local")
+    chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
 
 # --- DEFINIÇÃO DA ESTRUTURA DE SAÍDA ---
 class AIResponse(BaseModel):
