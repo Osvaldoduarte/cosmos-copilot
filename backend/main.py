@@ -29,6 +29,9 @@ app.add_middleware(
 )
 # ==============================================================================
 
+@app.get("/")
+def read_root():
+    return {"status": "Cosmos Copilot Backend is running!"}
 
 print("INFO: Carregando modelos e playbook na inicialização do servidor...")
 llm, db_tecnico, embeddings_model, playbook = cerebro_ia.load_models()

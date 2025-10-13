@@ -1,0 +1,15 @@
+# docker-compose.yml (Baseado no Tutorial do YouTube)
+services:
+  evolution_api:
+    image: atendai/evolution-api:v1.8.2
+    container_name: evolution_api
+    restart: always
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - evolution_store:/evolution/store
+
+volumes:
+  evolution_store: {}
