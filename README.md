@@ -52,6 +52,22 @@ Siga estes passos para configurar o projeto na sua máquina local.
     ```
     Após descompactar, você deve ter uma pasta `data/` dentro da pasta `backend/`.
 
+    A base de conhecimento (RAG) e os vídeos fonte são gerenciados no Google Cloud Storage para manter o repositório leve. Use o `gcloud CLI` para baixar os dados necessários.
+
+    ```bash
+    # Volte para a raiz do backend
+    cd ../backend
+
+    # Baixe e descompacte a pasta de dados
+    gsutil cp gs://cosmos-copilot-data-assets/data.zip .
+    unzip data.zip
+
+    # Baixe e descompacte a pasta de vídeos
+    gsutil cp gs://cosmos-copilot-data-assets/videos.zip .
+    unzip videos.zip
+    ```
+    Após descompactar, você deve ter as pastas `data/` e `videos/` dentro da pasta `backend/`.
+
 5.  **Gere a Base Vetorial Local**
     Com os dados no lugar, execute a pipeline para criar o banco de dados vetorial que a IA irá usar.
     ```bash
