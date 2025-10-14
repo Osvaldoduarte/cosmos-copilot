@@ -1,15 +1,40 @@
-import os
-import time
-import httpx
-from dotenv import load_dotenv
+import os, time, httpx, uuid, json, uvicorn
 
-import uvicorn
-from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
+from dotenv import load_dotenv
+from fastapi import FastAPI, Request, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Dict, Any
 
 from core import cerebro_ia
+
+class ConnectionManager:
+    def __init__(self):
+        # Dicionário para armazenar as conexões ativas.
+        # A chave será o conversation_id e o valor será o objeto WebSocket.
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, conversation_id: str):
+        # Aceita uma nova conexão.
+        await websocket.accept()
+        # Armazena a conexão associada ao ID da conversa.
+        self.active_connections[conversation_id] = websocket
+        print(f"INFO: WebSocket conectado para a conversa {conversation_id}")
+
+    def disconnect(self, conversation_id: str):
+        # Remove uma conexão quando o cliente se desconecta.
+        if conversation_id in self.active_connections:
+            del self.active_connections[conversation_id]
+            print(f"INFO: WebSocket desconectado da conversa {conversation_id}")
+
+    async def send_personal_message(self, message: str, conversation_id: str):
+        # Envia uma mensagem para um cliente específico.
+        if conversation_id in self.active_connections:
+            websocket = self.active_connections[conversation_id]
+            await websocket.send_text(message)
+
+# Cria uma instância global do nosso gerenciador.
+manager = ConnectionManager()
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(BASE_DIR, '.env'))
@@ -45,7 +70,23 @@ def read_root():
     return {"status": "Cosmos Copilot Backend is running!"}
 
 print("INFO: Carregando modelos e playbook na inicialização do servidor...")
-llm, db_tecnico, embeddings_model, playbook = cerebro_ia.load_models()
+
+@app.websocket("/ws/{conversation_id}")
+async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
+    # Registra a nova conexão no nosso gerenciador.
+    await manager.connect(websocket, conversation_id)
+    try:
+        # Mantém a conexão viva em um loop infinito.
+        while True:
+            # Apenas aguarda o cliente enviar alguma mensagem (não faremos nada com ela por enquanto).
+            # Se o cliente desconectar, esta linha vai gerar uma exceção.
+            data = await websocket.receive_text()
+    except WebSocketDisconnect:
+        # Quando a exceção de desconexão acontece, removemos o cliente do gerenciador.
+        manager.disconnect(conversation_id)
+
+llm, ensemble_retriever, embeddings_model, playbook = cerebro_ia.load_models()
+
 print("✅ Modelos e playbook carregados. Servidor pronto.")
 
 # --- NOVO: Armazenamento Temporário de Conversas e Sugestões ---
@@ -152,7 +193,7 @@ async def generate_response(request: SuggestionRequest):
     try:
         suggestion_response = cerebro_ia.generate_sales_suggestions(
             llm=llm,
-            db_tecnico=db_tecnico,
+            ensemble_retriever=ensemble_retriever,
             embeddings_model=embeddings_model,
             playbook=playbook,
             query=request.query,
@@ -176,137 +217,143 @@ class EvolutionWebhookEvent(BaseModel):
 # Certifique-se de que esta função esteja DENTRO do seu main.py,
 # e que as variáveis globais (cerebro_ia, embeddings_model) estejam acessíveis.
 @app.post("/webhook/evolution")
-@app.post("/webhook/evolution")
 async def handle_evolution_webhook(request: Request, background_tasks: BackgroundTasks):
-    # NOTA: Usamos request.json() pois a Evolution API envia um corpo JSON no evento
     payload = await request.json()
 
-    TIME_LIMIT_SECONDS = 300
-    current_timestamp = time.time()  # Certifique-se de que time está importado (import time)
+    # 1. Filtra o evento logo no início para maior eficiência.
+    if payload.get("event") != "messages.upsert":
+        return {"status": "ignored_not_a_message_event"}
 
-    for message_data in payload.get("data", {}).get("messages", []):
+    print(f"INFO: Webhook 'messages.upsert' recebido da instância {payload.get('instance')}")
 
-        message_timestamp = message_data.get("messageTimestamp", 0)
-
-        # Se a mensagem for muito antiga, ignora.
-        if current_timestamp - message_timestamp > TIME_LIMIT_SECONDS:
-            print(f"INFO: Mensagem de {message_data.get('key', {}).get('remoteJid')} ignorada. Muito antiga.")
-            continue  # Pula para a próxima mensagem
-
-    # 1. Verificação do evento
-    event_type = payload.get("event")
-    if event_type != "MESSAGES_UPSERT":
-        print(f"INFO: Evento ignorado: {event_type}")
-        return {"status": "ignored_event", "event": event_type}
-
-    print(f"Webhook recebido: {event_type} para instância {payload.get('instance')}")
+    TIME_LIMIT_SECONDS = 300  # 5 minutos
+    current_timestamp = time.time()
 
     try:
-        # 2. Iterar sobre as mensagens
-        for message_data in payload.get("data", {}).get("messages", []):
+        # 2. Itera em um único loop sobre a lista de mensagens em "data".
+        for message_data in payload.get("data", []):
 
-            # Ignora mensagens enviadas pelo próprio bot
+            # --- Sequência de filtros "Fail-Fast" ---
+
+            # Ignora mensagens enviadas por nós mesmos
             if message_data.get("key", {}).get("fromMe"):
                 continue
 
-            # Extração da mensagem
+            # Ignora mensagens muito antigas
+            message_timestamp = message_data.get("messageTimestamp", 0)
+            if current_timestamp - message_timestamp > TIME_LIMIT_SECONDS:
+                continue
+
+            # Extrai o conteúdo (suporta texto normal e texto estendido)
             message_content = (
                     message_data.get("message", {}).get("conversation") or
                     message_data.get("message", {}).get("extendedTextMessage", {}).get("text")
             )
-            conversation_id = message_data.get("key", {}).get("remoteJid")  # ID do cliente/conversa
+            conversation_id = message_data.get("key", {}).get("remoteJid")
+
+            # Se não houver conteúdo de texto ou ID da conversa, pula para a próxima mensagem
+            if not message_content or not conversation_id:
+                continue
+
+            print(f"  -> Nova mensagem válida de '{conversation_id}'. Conteúdo: '{message_content}'")
+
+            # 3. Monta o objeto da mensagem com dados mais precisos.
+            message_obj = {
+                "content": message_content,
+                "sender": "cliente",
+                "timestamp": message_timestamp,  # Usa o timestamp original da mensagem
+                "message_id": message_data.get("key", {}).get("id") or str(uuid.uuid4())  # Fallback mais robusto
+            }
+
+            # 4. Adiciona a tarefa ao background para responder rapidamente ao webhook.
+            background_tasks.add_task(
+                full_webhook_processing_task,
+                conversation_id,
+                message_obj,
+                message_content
+            )
+
+    except Exception as e:
+        print(f"❌ ERRO CRÍTICO ao processar webhook 'messages.upsert': {e}")
+        # Retorna 200 para que a Evolution API não tente reenviar.
+        return {"status": "error_during_processing", "detail": str(e)}
+
+    # Resposta de sucesso imediata para a Evolution API.
+    return {"status": "received_and_queued_for_processing"}
+
+async def process_and_broadcast_message(conversation_id: str, message_obj: Dict[str, Any]):
+    """
+    Esta é a nossa nova tarefa em segundo plano. Ela faz duas coisas:
+    1. Salva a nova mensagem na base de dados da conversa (Cérebro 2).
+    2. Transmite a mesma mensagem via WebSocket para o frontend.
+    """
+    try:
+        # 1. Salva a mensagem na memória (RAG Conversacional)
+        print(f"  -> Salvando mensagem de '{conversation_id}' na memória...")
+        db = cerebro_ia.get_or_create_conversation_db(conversation_id, embeddings_model)
+        cerebro_ia.add_message_to_conversation_rag(db, conversation_id, message_obj)
+        print(f"  -> Mensagem salva com sucesso.")
+
+        # 2. Transmite a mensagem para o frontend conectado
+        print(f"  -> Transmitindo mensagem para o WebSocket de '{conversation_id}'...")
+        # Converte o dicionário Python em uma string JSON para envio
+        json_message = json.dumps(message_obj)
+        await manager.send_personal_message(json_message, conversation_id)
+        print(f"  -> Mensagem transmitida com sucesso.")
+
+    except Exception as e:
+        print(f"❌ ERRO na tarefa em background 'process_and_broadcast_message': {e}")
+
+@app.post("/webhook/evolution")
+async def handle_evolution_webhook(request: Request, background_tasks: BackgroundTasks):
+    payload = await request.json()
+
+    if payload.get("event") != "messages.upsert":
+        return {"status": "ignored_not_a_message_event"}
+
+    print(f"INFO: Webhook 'messages.upsert' recebido da instância {payload.get('instance')}")
+
+    TIME_LIMIT_SECONDS = 300
+    current_timestamp = time.time()
+
+    try:
+        for message_data in payload.get("data", []):
+            if message_data.get("key", {}).get("fromMe"):
+                continue
+
+            message_timestamp = message_data.get("messageTimestamp", 0)
+            if current_timestamp - message_timestamp > TIME_LIMIT_SECONDS:
+                continue
+
+            message_content = (
+                    message_data.get("message", {}).get("conversation") or
+                    message_data.get("message", {}).get("extendedTextMessage", {}).get("text")
+            )
+            conversation_id = message_data.get("key", {}).get("remoteJid")
 
             if not message_content or not conversation_id:
                 continue
 
-            # 3. Montar o objeto mensagem para o RAG
+            print(f"  -> Nova mensagem válida de '{conversation_id}'. Conteúdo: '{message_content}'")
+
             message_obj = {
                 "content": message_content,
                 "sender": "cliente",
-                "timestamp": int(time.time()),
-                "message_id": message_data.get("key", {}).get("id") or str(time.time())
+                "timestamp": message_timestamp,
+                "message_id": message_data.get("key", {}).get("id") or str(uuid.uuid4())  # O uuid agora funciona!
             }
 
-            # 4. Adicionar a tarefa completa de processamento em background
-            background_tasks.add_task(full_webhook_processing_task,
-                                      conversation_id,
-                                      message_obj,
-                                      message_content)
+            background_tasks.add_task(
+                process_and_broadcast_message,  # <-- Nome da nova função
+                conversation_id,
+                message_obj,  # <-- Apenas os argumentos que a nova função precisa
+            )
 
     except Exception as e:
-        print(f"❌ ERRO CRÍTICO no handle_evolution_webhook: {e}")
-        # Retorna 200 para o Evolution não tentar re-enviar, mas loga o erro
-        return {"status": "error_processing_payload", "detail": str(e)}
+        print(f"❌ ERRO CRÍTICO ao processar webhook 'messages.upsert': {e}")
+        return {"status": "error_during_processing", "detail": str(e)}
 
-    return {"status": "received_and_processing"}
-
-
-# Certifique-se de que as variáveis globais llm, db_tecnico, embeddings_model e playbook
-# estão definidas no escopo de main.py (o que elas estão após cerebro_ia.load_models()).
-
-# Em backend/main.py
-
-# Certifique-se de que as variáveis globais llm, db_tecnico, embeddings_model e playbook
-# estão definidas no escopo de main.py (o que elas estão após cerebro_ia.load_models()).
-# Além disso, certifique-se de que o CONVERSATION_STATE_STORE foi adicionado.
-def full_webhook_processing_task(conversation_id: str, message_obj: Dict[str, Any], query: str):
-    """
-    Função síncrona para ser executada em BackgroundTasks.
-    Realiza a indexação, geração das sugestões e ATUALIZA O ESTADO GLOBAL.
-    """
-    global CONVERSATION_STATE_STORE
-
-    # 1. Definir o estágio inicial (para novas conversas)
-    initial_stage_id = playbook.get("initial_stage", "stage_triage")
-
-    # 2. Indexar a mensagem no RAG da conversa
-    try:
-        conversation_db = cerebro_ia.get_or_create_conversation_db(conversation_id, embeddings_model)
-        cerebro_ia.add_message_to_conversation_rag(conversation_db, conversation_id, message_obj)
-        print(f"✅ Mensagem do cliente indexada no RAG para JID: {conversation_id}")
-    except Exception as e:
-        print(f"❌ ERRO ao adicionar mensagem ao RAG: {e}")
-        return  # Aborta a tarefa se a indexação falhar
-
-    # 3. Gerar sugestões usando a função síncrona do core
-    try:
-        suggestions_response = cerebro_ia.generate_sales_suggestions(
-            llm=llm,
-            db_tecnico=db_tecnico,
-            embeddings_model=embeddings_model,
-            playbook=playbook,
-            query=query,
-            conversation_id=conversation_id,
-            current_stage_id=initial_stage_id
-        )
-
-        # 4. ATUALIZAR O ESTADO GLOBAL com a nova mensagem e sugestões
-
-        # Inicializa a estrutura da conversa se for nova
-        if conversation_id not in CONVERSATION_STATE_STORE:
-            # Você precisaria buscar o nome do cliente aqui (API Evolution ou DB)
-            # Por simplicidade, vamos usar o JID como nome temporário
-            CONVERSATION_STATE_STORE[conversation_id] = {
-                "id": conversation_id,
-                "name": f"Cliente: {conversation_id.split('@')[0]}",
-                "stage_id": suggestions_response.get('new_stage_id', initial_stage_id),
-                "messages": [],
-                "suggestions": []
-            }
-
-        # Adiciona a mensagem do cliente ao histórico (para o frontend)
-        CONVERSATION_STATE_STORE[conversation_id]["messages"].append(message_obj)
-
-        # Atualiza as sugestões e o estágio
-        CONVERSATION_STATE_STORE[conversation_id]["suggestions"] = suggestions_response.get('suggestions', {}).get(
-            'follow_up_options', [])
-        CONVERSATION_STATE_STORE[conversation_id]["stage_id"] = suggestions_response.get('new_stage_id',
-                                                                                         initial_stage_id)
-
-        print(f"✅ Estado da conversa {conversation_id} atualizado. Sugestões prontas.")
-
-    except Exception as e:
-        print(f"❌ ERRO ao gerar sugestões em background: {e}")
+    return {"status": "received_and_queued_for_processing"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

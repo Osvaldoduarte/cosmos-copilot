@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 from langchain.docstore.document import Document
 from langchain.prompts import ChatPromptTemplate
+from langchain.retrievers import BM25Retriever, EnsembleRetriever
 from langchain_community.vectorstores import Chroma
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
@@ -188,21 +189,45 @@ def load_models() -> tuple:
     load_dotenv()
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key: raise ValueError("ERRO: Chave GEMINI_API_KEY não configurada.")
+
     llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL_NAME, google_api_key=api_key, temperature=0.1)
     embeddings_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
+
     if not Path(CHROMA_PATH).exists(): raise FileNotFoundError(f"ERRO: DB Técnico não encontrado em {CHROMA_PATH}.")
     db_tecnico = Chroma(persist_directory=CHROMA_PATH, embedding_function=embeddings_model)
+
+    print("INFO: Preparando retrievers para a Busca Híbrida...")
+    # 1. Pega todos os documentos do nosso banco de dados técnico para a busca por palavra-chave.
+    all_docs = db_tecnico.get(include=["metadatas", "documents"])
+    docs_list = [Document(page_content=doc, metadata=meta) for doc, meta in
+                 zip(all_docs['documents'], all_docs['metadatas'])]
+
+    # 2. Inicializa o retriever de palavra-chave (BM25) com esses documentos.
+    keyword_retriever = BM25Retriever.from_documents(docs_list)
+    keyword_retriever.k = 3  # Define que ele deve retornar os 3 melhores resultados.
+
+    # 3. Cria o retriever vetorial a partir do nosso banco ChromaDB.
+    vector_retriever = db_tecnico.as_retriever(search_kwargs={"k": 3})
+
+    # 4. Inicializa o EnsembleRetriever, combinando os dois buscadores.
+    # Damos pesos iguais para a busca vetorial e a de palavra-chave.
+    ensemble_retriever = EnsembleRetriever(
+        retrievers=[keyword_retriever, vector_retriever],
+        weights=[0.5, 0.5]
+    )
+    print("✅ Retriever Híbrido (Ensemble) criado com sucesso.")
+
     if not Path(PLAYBOOK_PATH).exists(): raise FileNotFoundError(
         f"ERRO: Playbook de vendas não encontrado em {PLAYBOOK_PATH}.")
+
     with open(PLAYBOOK_PATH, 'r', encoding='utf-8') as f:
         playbook = json.load(f)
     print("✅ LLM, Embedding, DB Técnico e Playbook carregados com sucesso.")
-    return llm, db_tecnico, embeddings_model, playbook
-
+    return llm, ensemble_retriever, embeddings_model, playbook
 
 # Substitua sua função generate_sales_suggestions inteira por esta.
 def generate_sales_suggestions(
-        llm: ChatGoogleGenerativeAI, db_tecnico: Chroma, embeddings_model: GoogleGenerativeAIEmbeddings,
+        llm: ChatGoogleGenerativeAI, ensemble_retriever: EnsembleRetriever, embeddings_model: GoogleGenerativeAIEmbeddings,
         playbook: Dict[str, Any], query: str, conversation_id: str, current_stage_id: str
 ) -> Dict[str, Any]:
     print("\n--- INICIANDO FLUXO DE GERAÇÃO ESTRATÉGICO V2.2 ---")
@@ -248,10 +273,10 @@ def generate_sales_suggestions(
 
     # --- ETAPA 3: COLETAR EVIDÊNCIAS DO CÉREBRO 1 (TÉCNICO) ---
     # Buscamos na base de conhecimento técnica por informações relevantes para a pergunta do cliente.
-    context_docs = db_tecnico.similarity_search(query, k=3)
+    context_docs = ensemble_retriever.invoke(query)
     technical_context = "\n\n".join([doc.page_content for doc in context_docs])
     if not technical_context:
-        technical_context = "Nenhuma informação técnica encontrada sobre este assunto."
+        technical_context = "\n\n".join([doc.page_content for doc in context_docs])
     print(f"📚 CÉREBRO 1: Contexto técnico recuperado.")
 
     # --- ETAPA 4: SÍNTESE E CHAMADA ÚNICA AO LLM COM O "SUPER PROMPT" ---
