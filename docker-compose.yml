@@ -2,6 +2,9 @@
 services:
   evolution_api:
     image: atendai/evolution-api:v1.8.2
+    environment:
+      MESSAGES_INITIAL_FETCH: 0
+      SYNC_MESSAGES_ON_CONNECT: false
     container_name: evolution_api
     restart: always
     ports:

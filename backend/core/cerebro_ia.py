@@ -22,7 +22,7 @@ CHROMA_CONVERSAS_PATH = str(BACKEND_DIR / "chroma_db_conversas")
 PLAYBOOK_PATH = str(DATA_DIR / "playbook_vendas.json")
 GEMINI_MODEL_NAME = "gemini-2.5-flash"
 
-# Carrega as variáveis de ambiente (do arquivo .env)
+# Carrega as variáveis de ambiente (do arquivo .env.local)
 load_dotenv()
 
 # --- NOVA LÓGICA DE CONEXÃO AO CHROMA DB ---
