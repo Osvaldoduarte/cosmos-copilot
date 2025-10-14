@@ -21,36 +21,25 @@ const linkStyle = {
  * @param {{ video: { video_url: string } }} props
  */
 const VideoSuggestionCard = ({ video }) => {
-
-  // ==================================================================
-  // A CORREÇÃO ESTÁ AQUI
-  // ==================================================================
-  //
-  // Esta verificação é a "guarda".
-  // Se a prop 'video' não existir, OU se ela não tiver a chave 'video_url',
-  // o componente retorna 'null', ou seja, ele não renderiza NADA na tela e para a execução.
   if (!video || !video.video_url) {
     return null;
   }
 
-  // Se o código chegou até este ponto, temos 100% de certeza
-  // de que 'video' é um objeto e 'video.video_url' existe e é uma string.
-  // Agora podemos usar a função .includes() com segurança.
-  const isYouTube = video.video_url.includes('youtube.com');
+  const isYouTube = video.url.includes('youtube.com') || video.url.includes('youtu.be');
 
   return (
-    <div style={cardStyle}>
-      <h4>📹 Vídeo de Treinamento Sugerido</h4>
-      <p>
-        Encontrei um vídeo que pode te ajudar com isso.
+    <div className="video-card mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg shadow-sm">
+      <h4 className="text-md font-semibold mb-2 text-gray-700">📹 Sugestão de Vídeo: {video.title}</h4>
+      <p className="text-sm text-gray-600 mb-3">
+        Encontramos um conteúdo na base de conhecimento que pode complementar a resposta.
       </p>
       <a
-        href={video.video_url}
+        href={video.url}
         target="_blank"
         rel="noopener noreferrer"
-        style={linkStyle}
+        className="text-sm font-bold text-blue-600 hover:underline"
       >
-        {isYouTube ? 'Assistir no YouTube' : 'Abrir vídeo'}
+        {isYouTube ? 'Assistir no YouTube' : 'Abrir Vídeo'}
       </a>
     </div>
   );

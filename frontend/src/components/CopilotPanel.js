@@ -118,36 +118,37 @@ function CopilotPanel({ isLoading, error, suggestions, onUseSuggestion, onUseAud
         {!isLoading && suggestions.length > 0 && (
           <div className="copilot-output">
             {suggestions.map(item => (
-  <div key={item.id} className="suggestion-group">
-    {/* Esta parte não muda */}
-    {item.query && ( <blockquote className="suggestion-query">Referente a: "{item.query}"</blockquote> )}
+              <div key={item.id} className="suggestion-group">
+                {item.query && ( <blockquote className="suggestion-query">Referente a: "{item.query}"</blockquote> )}
 
-    {/* 1ª CORREÇÃO: Passamos a flag 'is_private' e a função 'onDelete' para o card principal */}
-    <TonalSuggestionCard
-        title="💡 Sugestão de Resposta"
+                {/* --- CARD DE RESPOSTA IMEDIATA --- */}
+                {item.immediate_answer && ( // Garante que só renderiza se houver resposta imediata
+                  <TonalSuggestionCard
+                      title={item.is_private ? item.private_query : "💡 Sugestão de Resposta"}
+                      // Passa a resposta como uma lista de uma única opção
+                      options={[{ text: item.immediate_answer, is_recommended: true }]}
+                      onUseSuggestion={(text) => onUseSuggestion(item.id, text, 'immediate_answer')}
+                      is_private={item.is_private}
+                      onDelete={() => onDeleteSuggestion(item.id)}
+                  />
+                )}
 
-        // Para esta linha, que usa uma lógica condicional (ternário):
-        title={item.is_private ? item.private_query : "💡 Sugestão de Resposta"}
-      options={[{ text: item.immediate_answer, is_recommended: true }]}
-      onUseSuggestion={(text) => onUseSuggestion(item.id, text, 'immediate_answer')}
-      is_private={item.is_private}
-      onDelete={() => onDeleteSuggestion(item.id)}
-    />
+                {/* --- CARD DE PRÓXIMO PASSO (FOLLOW-UP) --- */}
+                {!item.is_private && item.follow_up_options && item.follow_up_options.length > 0 && (
+                  <TonalSuggestionCard
+                    title="➡️ Próximo Passo Sugerido"
+                    // O follow_up_options já é uma lista, mas passamos apenas o primeiro elemento no nosso novo payload.
+                    // Se o payload for refinado para ter múltiplas opções, este bloco será mais complexo.
+                    options={item.follow_up_options}
+                    onUseSuggestion={(text) => onUseSuggestion(item.id, text, 'follow_up_options')}
+                    is_private={item.is_private}
+                  />
+                )}
 
-    {/* 2ª CORREÇÃO: Envolvemos o card "Próximo Passo" em uma condição para só exibi-lo se a sugestão NÃO for privada */}
-    {!item.is_private && item.follow_up_options && (
-      <TonalSuggestionCard
-        title="➡️ Próximo Passo Sugerido"
-        options={item.follow_up_options}
-        onUseSuggestion={(text) => onUseSuggestion(item.id, text, 'follow_up_options')}
-        is_private={item.is_private}
-      />
-    )}
-
-    {/* Esta parte não muda */}
-    {item.video && <VideoSuggestionCard video={item.video} />}
-  </div>
-))}
+                {/* --- CARD DE VÍDEO (Cérebro 4) --- */}
+                {item.video && <VideoSuggestionCard video={item.video} />}
+              </div>
+            ))}
           </div>
         )}
 
