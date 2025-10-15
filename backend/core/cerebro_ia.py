@@ -406,7 +406,7 @@ def generate_sales_suggestions(
         "query": query
     })
 
-    print(f"✅ LLM retornou uma resposta estruturada. Próximo estágio decidido: '{ai_response.proximo_stage_id}'")
+    print(f"✅ LLM retornou uma resposta estruturada. Próximo estágio decidido: '{final_next_stage_id}'")
 
     # --- NOVO: ETAPA 5 (CÉREBRO 4) - BUSCAR SUGESTÃO DE VÍDEO ---
     # Chamamos a nova função que busca o vídeo mais relevante.

@@ -79,8 +79,7 @@ const LoadingAnimation = () => {
 // --- COMPONENTE PRINCIPAL ---
 // Arquivo: frontend/src/components/CopilotPanel.js (versão reordenada)
 
-function CopilotPanel({ isLoading, error, suggestions, onUseSuggestion, onUseAudio, onClearSuggestions, onMessageDrop, onPrivateQuerySubmit, onDeleteSuggestion }) {
-
+function CopilotPanel({ isLoading, error, suggestions, onUseSuggestion, onDeleteSuggestion, onMessageDrop, onClearSuggestions, onPrivateQuerySubmit }) {
   const handleDragOver = (e) => e.preventDefault();
 
   const handleDrop = (e) => {

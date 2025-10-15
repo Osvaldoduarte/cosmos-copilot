@@ -3,8 +3,8 @@ services:
   evolution_api:
     image: atendai/evolution-api:v1.8.2
     environment:
-      MESSAGES_INITIAL_FETCH: 0
-      SYNC_MESSAGES_ON_CONNECT: false
+      - DATABASE_ENGINE=sqlite
+      - DATABASE_PATH=/evolution/database/evolution.db
     container_name: evolution_api
     restart: always
     ports:
@@ -13,6 +13,7 @@ services:
       - .env
     volumes:
       - evolution_store:/evolution/store
+      - ./db_data:/evolution/database
 
 volumes:
   evolution_store: {}

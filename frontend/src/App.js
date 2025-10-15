@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import ConversationList from './components/ConversationList';
 import ChatPanel from './components/ChatPanel';
 import CopilotPanel from './components/CopilotPanel';
-import { initialMockConversations } from './initialData'; // Mantenha o import se for usar mock para debug
+import NewConversationModal from './components/NewConversationModal'; // 1. IMPORTE o novo componente
+
 
 
 function App() {
@@ -14,7 +15,27 @@ function App() {
   const [error, setError] = useState('');
   const [suggestionsByConvo, setSuggestionsByConvo] = useState({});
   const [stagesByConvo, setStagesByConvo] = useState({});
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
+  // Efeito para lidar com a tecla 'Escape'
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      // Verifica se a tecla pressionada foi 'Escape'
+      if (event.key === 'Escape') {
+        // Limpa o ID da conversa ativa, deselecionando-a
+        setActiveConversationId(null);
+      }
+    };
+
+    // Adiciona o "ouvinte" de eventos ao carregar o componente
+    window.addEventListener('keydown', handleKeyDown);
+
+    // Função de limpeza: remove o "ouvinte" ao desmontar o componente
+    // para evitar vazamentos de memória.
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // --- FUNÇÕES DE LÓGICA DO VENDEDOR ---
 
@@ -68,6 +89,33 @@ function App() {
   };
 
   // Funções de solicitação de sugestão (handleSuggestionRequest e handlePrivateSuggestionRequest)
+  const handleStartConversation = async (number, message) => {
+    setIsLoading(true);
+    setError('');
+    try {
+      const response = await fetch('http://127.0.0.1:8000/conversations/start_new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipient_number: number,
+          initial_message: message,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Falha ao iniciar a conversa.');
+      }
+
+      setIsModalOpen(false); // Fecha o modal em caso de sucesso
+      // O polling se encarregará de atualizar a lista
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSuggestionRequest = async (query) => {
     setIsLoading(true);
     setError('');
@@ -183,7 +231,12 @@ function App() {
     setSuggestionsByConvo(prevMap => ({ ...prevMap, [activeConversationId]: [] }));
   };
   // ... (Outras funções como handleDeleteSuggestion, useAudio devem ser restauradas)
-
+const handleMessageDrop = (droppedText) => {
+  // Quando uma mensagem do cliente é solta, tratamos como uma nova
+  // solicitação de sugestão.
+  console.log(`Mensagem arrastada recebida: "${droppedText}". Solicitando sugestão...`);
+  handleSuggestionRequest(droppedText);
+};
 
   // --- FUNÇÃO DE POLLING CORRIGIDA (CRÍTICA) ---
   const fetchConversations = useCallback(async () => {
@@ -231,6 +284,7 @@ function App() {
           newConversations[convo.id] = {
             id: convo.id,
             name: convo.name || convo.id.split('@')[0],
+            avatarUrl: convo.avatar_url,
             lastMessage: lastMessage.content,
             lastUpdated: lastMessage.timestamp * 1000,
             messages: mappedMessages, // <--- ARRAY DE MENSAGENS CORRIGIDO
@@ -247,13 +301,6 @@ function App() {
         setSuggestionsByConvo(newSuggestionsByConvo);
         setStagesByConvo(newStagesByConvo);
 
-        // --- LÓGICA DE ATIVAÇÃO DE ID (GARANTE QUE O CHAT NÃO FIQUE VAZIO) ---
-        if (!activeConversationId && Object.keys(newConversations).length > 0) {
-            const sorted = Object.values(newConversations).sort((a, b) => b.lastUpdated - a.lastUpdated);
-            if (sorted.length > 0) {
-                setActiveConversationId(sorted[0].id);
-            }
-        }
       }
     } catch (err) {
       console.error("Erro no polling de conversas:", err);
@@ -270,16 +317,21 @@ function App() {
 
 
   // --- RENDERIZAÇÃO ---
-  const activeConversation = conversations[activeConversationId] || { id: null, messages: [], lastMessage: 'Nenhuma conversa carregada', name: 'Carregando...', lastUpdated: 0 };
+  const activeConversation = conversations[activeConversationId];
   const activeSuggestions = suggestionsByConvo[activeConversationId] || [];
   const sortedConversations = Object.values(conversations).sort((a, b) => b.lastUpdated - a.lastUpdated);
 
   return (
     <div className="app-container">
-      <ConversationList conversations={sortedConversations} activeConversationId={activeConversationId} onConversationSelect={handleConversationSelect} />
+      <ConversationList
+        conversations={sortedConversations}
+        activeConversationId={activeConversationId}
+        onConversationSelect={handleConversationSelect}
+        onNewConversationClick={() => setIsModalOpen(true)}
+        />
       <ChatPanel
         key={activeConversationId}
-        activeConversation={activeConversation}
+        activeConversation={conversations[activeConversationId]}
         onCustomerQuerySubmit={handleCustomerMessageSubmit}
         onSellerResponseSubmit={(text) => handleUseSuggestion(Date.now(), text, 'follow_up_options')}
         isLoading={isLoading}
@@ -289,7 +341,16 @@ function App() {
         error={error}
         suggestions={activeSuggestions}
         onUseSuggestion={handleUseSuggestion}
+        onMessageDrop={handleMessageDrop}
+        onClearSuggestions={handleClearSuggestions}
+        onPrivateQuerySubmit={handlePrivateSuggestionRequest}
         // ... (o restante das props)
+      />
+      <NewConversationModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onStartConversation={handleStartConversation}
+        isLoading={isLoading}
       />
     </div>
   );
