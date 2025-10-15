@@ -1,70 +1,106 @@
-# Getting Started with Create React App
+# 🚀 Cosmos Copilot - Assistente de Vendas com IA
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+O Cosmos Copilot é um assistente de vendas inteligente projetado para capacitar a equipe comercial, fornecendo sugestões de resposta em tempo real diretamente em conversas do WhatsApp.
 
-## Available Scripts
+Integrado à **Evolution API**, o Copilot utiliza um sistema de múltiplos "cérebros" (RAG) para entender o contexto da conversa, consultar a base de conhecimento de produtos, seguir um playbook de vendas estratégico e, finalmente, gerar respostas relevantes e eficazes.
 
-In the project directory, you can run:
+## ✨ Funcionalidades Principais
 
-### `npm start`
+-   **Interface Reativa:** Um painel de controle que exibe conversas do WhatsApp em tempo real.
+-   **Sugestões Inteligentes:** Arraste uma mensagem do cliente para o painel do Copilot para receber sugestões instantâneas de resposta.
+-   **Arquitetura Multi-Cérebro:**
+    -   **Cérebro 1 (Produto):** Base de conhecimento vetorial sobre o CosmosERP.
+    -   **Cérebro 2 (Cliente):** Memória persistente do histórico de cada conversa.
+    -   **Cérebro 3 (Estratégia):** Lógica de vendas baseada em um playbook customizável.
+    -   **Cérebro 4 (Conteúdo):** Sugestão de vídeos e materiais de apoio.
+-   **Início Proativo de Conversas:** Funcionalidade para iniciar um novo chat com um cliente diretamente da interface.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+## 🛠️ Tecnologias Utilizadas
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+-   **Backend:** Python, FastAPI
+-   **Frontend:** React.js
+-   **Base de Conhecimento (RAG):** ChromaDB, LangChain
+-   **Integração WhatsApp:** Evolution API
+-   **Orquestração:** Docker & Docker Compose
 
-### `npm test`
+---
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## 🏁 Guia de Instalação e Execução
 
-### `npm run build`
+Siga os passos abaixo para configurar e rodar o projeto em seu ambiente local.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### 1. Pré-requisitos
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+-   **Docker** e **Docker Compose**
+-   **Node.js** (versão 18 ou superior)
+-   **Python** (versão 3.11 ou superior)
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### 2. Configuração do Ambiente
 
-### `npm run eject`
+1.  **Clone o Repositório:**
+    ```bash
+    git clone [https://github.com/osvaldoduarte/cosmos-copilot.git](https://github.com/osvaldoduarte/cosmos-copilot.git)
+    cd cosmos-copilot
+    ```
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+2.  **Configure a Evolution API:**
+    -   Navegue até o diretório raiz do projeto.
+    -   Crie uma cópia do arquivo de exemplo `.env.example` e renomeie-a para `.env`.
+    -   Abra o arquivo `.env` e preencha as variáveis da `EVOLUTION_API`, principalmente a sua `EVOLUTION_API_KEY`.
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+3.  **Configure as Chaves da IA:**
+    -   Dentro da pasta `backend/`, crie um arquivo `.env`.
+    -   Adicione sua chave da OpenAI (ou outro provedor de LLM) neste arquivo:
+        ```env
+        OPENAI_API_KEY="sua_chave_aqui"
+        ```
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+### 3. Executando a Aplicação
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+A execução é dividida em três serviços principais: a API do WhatsApp, o nosso backend e o frontend.
 
-## Learn More
+1.  **Inicie a Evolution API (via Docker):**
+    No terminal, a partir da raiz do projeto, execute:
+    ```bash
+    docker-compose up -d
+    ```
+    -   Este comando irá baixar a imagem da Evolution API e iniciá-la em segundo plano.
+    -   Acesse `http://localhost:8080` no seu navegador para escanear o QR Code e conectar seu número de WhatsApp. O banco de dados para persistir as conversas será criado automaticamente.
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+2.  **Inicie o Backend (Python):**
+    Abra um **novo terminal**.
+    ```bash
+    cd backend
+    python -m venv .venv
+    source .venv/bin/activate  # No Windows: .venv\Scripts\activate
+    pip install -r requirements.txt
+    uvicorn main:app --reload
+    ```
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+3.  **Inicie o Frontend (React):**
+    Abra um **terceiro terminal**.
+    ```bash
+    cd frontend
+    npm install
+    npm start
+    ```
 
-### Code Splitting
+### 4. Geração da Base de Conhecimento (Passo Único)
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+Após iniciar todos os serviços pela primeira vez, você precisa popular a base de conhecimento da IA.
 
-### Analyzing the Bundle Size
+-   Abra um **quarto terminal**.
+-   Navegue até a pasta `backend/` e ative o ambiente virtual:
+    ```bash
+    cd backend
+    source .venv/bin/activate
+    ```
+-   Execute o script de pipeline:
+    ```bash
+    python scripts/gerenciar_pipeline.py
+    ```
+    -   Este script irá processar os documentos e vídeos, criando os bancos de dados vetoriais que a IA utiliza. **Você só precisa executar isso uma vez** ou quando a base de conhecimento for atualizada.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+---
 
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Agora, acesse `http://localhost:3000` em seu navegador. O Cosmos Copilot estará pronto para uso!

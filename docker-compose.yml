@@ -1,19 +1,94 @@
-# docker-compose.yml (Baseado no Tutorial do YouTube)
+# docker-compose.yml - Versão Corrigida com PostgreSQL
+version: '3.8'
+
 services:
+  # Banco de dados PostgreSQL para o Evolution API
+  postgres:
+    image: postgres:15-alpine
+    container_name: evolution_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: evolution_password_secure_123
+      POSTGRES_DB: evolution
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Evolution API
   evolution_api:
     image: atendai/evolution-api:v1.8.2
-    environment:
-      - DATABASE_ENGINE=sqlite
-      - DATABASE_PATH=/evolution/database/evolution.db
     container_name: evolution_api
     restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "8080:8080"
-    env_file:
-      - .env
+    environment:
+      # Configuração do Banco de Dados
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_CONNECTION_URI=postgresql://evolution:evolution_password_secure_123@postgres:5432/evolution
+      - DATABASE_SAVE_DATA_INSTANCE=true
+      - DATABASE_SAVE_DATA_NEW_MESSAGE=true
+      - DATABASE_SAVE_MESSAGE_UPDATE=true
+      - DATABASE_SAVE_DATA_CONTACTS=true
+      - DATABASE_SAVE_DATA_CHATS=true
+
+      # Configurações de Autenticação
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
+
+      # Configurações do Servidor
+      - SERVER_TYPE=http
+      - SERVER_PORT=8080
+      - SERVER_URL=${EVOLUTION_API_URL:-http://localhost:8080}
+
+      # Configurações de Logs
+      - LOG_LEVEL=ERROR
+      - LOG_COLOR=true
+      - LOG_BAILEYS=false
+
+      # Configurações de Webhook
+      - WEBHOOK_GLOBAL_ENABLED=true
+      - WEBHOOK_GLOBAL_URL=${WEBHOOK_URL}
+      - WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=true
+      - WEBHOOK_EVENTS_APPLICATION_STARTUP=false
+      - WEBHOOK_EVENTS_QRCODE_UPDATED=true
+      - WEBHOOK_EVENTS_MESSAGES_SET=true
+      - WEBHOOK_EVENTS_MESSAGES_UPSERT=true
+      - WEBHOOK_EVENTS_MESSAGES_UPDATE=true
+      - WEBHOOK_EVENTS_MESSAGES_DELETE=false
+      - WEBHOOK_EVENTS_SEND_MESSAGE=false
+      - WEBHOOK_EVENTS_CONTACTS_SET=true
+      - WEBHOOK_EVENTS_CONTACTS_UPSERT=true
+      - WEBHOOK_EVENTS_CONTACTS_UPDATE=true
+      - WEBHOOK_EVENTS_PRESENCE_UPDATE=false
+      - WEBHOOK_EVENTS_CHATS_SET=true
+      - WEBHOOK_EVENTS_CHATS_UPSERT=true
+      - WEBHOOK_EVENTS_CHATS_UPDATE=true
+      - WEBHOOK_EVENTS_CHATS_DELETE=false
+      - WEBHOOK_EVENTS_CONNECTION_UPDATE=true
+
+      # Configurações de Cache
+      - CACHE_REDIS_ENABLED=false
+
     volumes:
       - evolution_store:/evolution/store
-      - ./db_data:/evolution/database
+      - evolution_instances:/evolution/instances
+    env_file:
+      - .env
 
 volumes:
-  evolution_store: {}
+  postgres_data:
+    driver: local
+  evolution_store:
+    driver: local
+  evolution_instances:
+    driver: local
