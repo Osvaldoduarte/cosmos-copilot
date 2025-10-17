@@ -1,19 +1,28 @@
-import os, time, httpx, uuid, json, uvicorn
-
+import os, time, httpx, uuid, json, uvicorn, asyncio, copy
+from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Dict, Any
 
-
 from core import cerebro_ia
+
+class Colors:
+    RED = '\033[91m'
+    BLUE = '\033[94m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    END = '\033[0m'
+
+def print_error(msg): print(f"{Colors.RED}❌ {msg}{Colors.END}")
+def print_info(msg): print(f"{Colors.BLUE}ℹ️  {msg}{Colors.END}")
+def print_success(msg): print(f"{Colors.GREEN}✅ {msg}{Colors.END}")
+def print_warning(msg): print(f"{Colors.YELLOW}⚠️  {msg}{Colors.END}")
 
 class NewConversationRequest(BaseModel):
     recipient_number: str = Field(..., description="Número do destinatário no formato DDI+DDD+Número, ex: 5541999999999")
     initial_message: str
-
-# --- Gerenciador de Conexões WebSocket (Inalterado) ---
 
 class ConnectionManager:
     def __init__(self):
@@ -34,33 +43,44 @@ class ConnectionManager:
             websocket = self.active_connections[conversation_id]
             await websocket.send_text(message)
 
+class SuggestionRequest(BaseModel):
+    query: str
+    conversation_id: str
+    current_stage_id: str | None = Field(default=None)
+
+class MessageSendRequest(BaseModel):
+    conversation_id: str
+    message_text: str
+
+STATE_LOCK = asyncio.Lock()
+
 CONVERSATION_STATE_STORE: Dict[str, Any] = {}
 
 manager = ConnectionManager()
+env_path = Path(__file__).parent.parent / ".env"
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-load_dotenv(os.path.join(BASE_DIR, '.env'))
-
+load_dotenv(dotenv_path=env_path)
 EVO_URL = os.getenv("EVOLUTION_API_URL")
 EVO_INSTANCE = os.getenv("EVOLUTION_INSTANCE_NAME")
-
-# --- A LINHA COM ERRO ESTÁ AQUI ---
-EVO_TOKEN = os.getenv("EVOLUTION_API_KEY")
 
 
 # --- 1. Inicialização da Aplicação e Carregamento dos Modelos ---
 
-app = FastAPI()
+EVO_TOKEN = os.getenv("EVOLUTION_API_KEY")
 
+app = FastAPI()
 # --- GATILHO DE INICIALIZAÇÃO ---
+
 @app.on_event("startup")
 async def on_startup():
-    """Executa a sincronização do histórico ao iniciar o servidor."""
-    await load_history_from_evolution_api()
-
+    # A sincronização agora roda como uma tarefa em segundo plano
+    # para não bloquear a inicialização do servidor.
+    asyncio.create_task(load_history_from_evolution_api())
 # ... (o resto do seu código, como a configuração do CORS, continua aqui)
 # Configuração de CORS
+
 origins = ["http://localhost:3000"]
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -69,7 +89,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 def find_existing_conversation_jid(jid: str) -> str | None:
     """
@@ -106,6 +125,21 @@ def find_existing_conversation_jid(jid: str) -> str | None:
     # 4. Se nenhuma versão foi encontrada, retorna None
     return None
 
+@app.get("/debug/{jid:path}")
+async def debug_conversation_state(jid: str):
+    """
+    Endpoint de depuração para inspecionar o estado de uma única conversa na memória.
+    Use o JID completo, ex: 5541999999999@s.whatsapp.net
+    """
+    if jid in CONVERSATION_STATE_STORE:
+        return CONVERSATION_STATE_STORE[jid]
+    else:
+        # Se não encontrar, tenta a variação com/sem o 9º dígito (bônus)
+        alternative_jid = find_existing_conversation_jid(jid)
+        if alternative_jid and alternative_jid in CONVERSATION_STATE_STORE:
+            return CONVERSATION_STATE_STORE[alternative_jid]
+        raise HTTPException(status_code=404, detail=f"JID {jid} não encontrado no estado da conversa.")
+
 @app.get("/contacts/info/{number}")
 async def get_contact_info(number: str):
     """Busca nome e foto de um número na Evolution API para preview."""
@@ -131,39 +165,65 @@ async def get_contact_info(number: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# Em main.py, substitua a função original (próximo à linha 140) por esta:
+
 async def send_whatsapp_message(recipient_jid: str, message_text: str) -> bool:
-    """Envia uma mensagem de texto para um JID específico usando a Evolution API."""
+    """Envia uma mensagem de texto para um JID específico usando a Evolution API v2.2.3"""
     if not all([EVO_URL, EVO_INSTANCE, EVO_TOKEN]):
         print("❌ ERRO CRÍTICO: Variáveis de ambiente da Evolution API não estão configuradas.")
         return False
 
+    # Remove o sufixo @s.whatsapp.net se existir para enviar apenas o número
+    number_only = recipient_jid.split('@')[0]
+
     url = f"{EVO_URL}/message/sendText/{EVO_INSTANCE}"
-    headers = {'Content-Type': 'application/json', 'apikey': EVO_TOKEN}
+    headers = {
+        'Content-Type': 'application/json',
+        'apikey': EVO_TOKEN
+    }
+
+    # Payload correto para Evolution API v2.2.3
     payload = {
-        "number": recipient_jid.split('@')[0],
-        "textMessage": {"text": message_text}
+        "number": number_only,
+        "text": message_text
     }
 
     try:
         async with httpx.AsyncClient() as client:
-            print(f"  -> Enviando nova conversa para {recipient_jid} via API...")
+            # --- LOGS PARA DEBUG ---
+            print("\n" + "="*25 + " NOVA MENSAGEM SAINDO " + "="*25)
+            print(f"  -> Destino: {number_only}")
+            print(f"  -> URL da API: {url}")
+            print(f"  -> Payload enviado:\n{json.dumps(payload, indent=2)}")
+            # --- FIM DOS LOGS ---
+
             response = await client.post(url, headers=headers, json=payload, timeout=20.0)
 
-            # Lança um erro se a resposta for 4xx ou 5xx
+            # --- LOGS DA RESPOSTA ---
+            print(f"  -> Resposta da API (Status): {response.status_code}")
+            print(f"  -> Resposta da API (Corpo):\n{response.text}")
+            print("="*72 + "\n")
+            # --- FIM DOS LOGS ---
+
             response.raise_for_status()
 
-            print(f"✅ Mensagem inicial enviada com sucesso para {recipient_jid}.")
+            print(f"✅ Mensagem enviada com sucesso para {number_only}.")
             return True
+
     except httpx.HTTPStatusError as e:
-        print(f"❌ ERRO HTTP ao enviar mensagem: {e.response.status_code} - {e.response.text}")
+        print(f"❌ ERRO HTTP ao enviar mensagem: {e.response.status_code}")
+        print(f"   Corpo da resposta do erro: {e.response.text}")
         return False
     except Exception as e:
-        print(f"❌ ERRO GERAL ao enviar mensagem para Evolution API: {e}")
+        print(f"❌ ERRO GERAL ao enviar mensagem: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 @app.get("/")
 def read_root():
     return {"status": "Cosmos Copilot Backend is running!"}
+
 
 print("INFO: Carregando modelos e playbook na inicialização do servidor...")
 
@@ -210,7 +270,6 @@ async def start_new_conversation(request: NewConversationRequest):
 
     return {"status": "success", "message": "Conversa iniciada e registrada com sucesso."}
 
-
 @app.get("/contacts/info/{number}")
 async def get_contact_info(number: str):
     """Busca nome e foto de um número no WhatsApp."""
@@ -226,6 +285,7 @@ async def get_contact_info(number: str):
 
     return {"name": contact_name, "avatar_url": profile_pic}
 
+
 @app.websocket("/ws/{conversation_id}")
 async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
     await manager.connect(websocket, conversation_id)
@@ -234,44 +294,16 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
             data = await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(conversation_id)
-
-
 # Carrega todos os modelos e o playbook.
+
 llm, ensemble_retriever, embeddings_model, playbook = cerebro_ia.load_models()
 
 print("✅ Modelos e playbook carregados. Servidor pronto.")
-
 # --- Armazenamento Temporário de Conversas e Sugestões (Estado Global) ---
+
+
 CONVERSATION_STATE_STORE: Dict[str, Any] = {}
 
-
-class MessageSendRequest(BaseModel):
-    conversation_id: str
-    message_text: str
-
-
-# Função para enviar a mensagem via API Evolution (Inalterada)
-async def send_whatsapp_message(recipient_jid: str, message_text: str):
-    if not all([EVO_URL, EVO_INSTANCE, EVO_TOKEN]):
-        print("❌ ERRO: Configuração da Evolution API faltando.")
-        return False
-
-    url = f"{EVO_URL}/message/sendText/{EVO_INSTANCE}"
-    headers = {'Content-Type': 'application/json', 'apikey': EVO_TOKEN}
-    payload = {"number": recipient_jid.split('@')[0], "textMessage": {"text": message_text}}
-
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, headers=headers, json=payload, timeout=20)
-            response.raise_for_status()
-            print(f"✅ Mensagem enviada para {recipient_jid}.")
-            return True
-    except httpx.HTTPStatusError as e:
-        print(f"❌ ERRO HTTP ao enviar mensagem: {e.response.status_code} - {e.response.text}")
-        return False
-    except Exception as e:
-        print(f"❌ ERRO ao enviar mensagem para Evolution: {e}")
-        return False
 
 async def get_contact_name(jid: str) -> str:
     """Busca o nome de um contato na Evolution API."""
@@ -293,6 +325,7 @@ async def get_contact_name(jid: str) -> str:
         print(f"ERRO ao buscar nome do contato para {jid}: {e}")
         return default_name
 
+
 async def get_profile_pic_url(jid: str) -> str:
     """Busca a URL da foto de perfil de um contato na Evolution API."""
     default_pic = default_pic = f"https://i.pravatar.cc/150?u={jid}"
@@ -308,7 +341,6 @@ async def get_profile_pic_url(jid: str) -> str:
     except Exception as e:
         print(f"AVISO: Não foi possível obter a foto de perfil para {jid}: {e}")
         return default_pic
-
 
 async def process_and_broadcast_message(conversation_id: str, message_obj: Dict[str, Any]):
     """
@@ -345,8 +377,9 @@ async def process_and_broadcast_message(conversation_id: str, message_obj: Dict[
         import traceback
         print(f"❌ ERRO na tarefa em background 'process_and_broadcast_message': {e}")
         traceback.print_exc()
-
 # Novo Endpoint para o frontend disparar o envio da resposta do vendedor
+
+
 @app.post("/send_seller_message")
 async def send_seller_message_route(request: MessageSendRequest, background_tasks: BackgroundTasks):
     global CONVERSATION_STATE_STORE
@@ -384,34 +417,24 @@ async def send_seller_message_route(request: MessageSendRequest, background_task
     return {"status": "success", "message": "Mensagem enviada e indexada para polling."}
 
 
-# --- Definição dos Modelos de Dados (Pydantic) ---
-class SuggestionRequest(BaseModel):
-    query: str
-    conversation_id: str
-    current_stage_id: str | None = Field(default=None)
-
-
-# Em backend/main.py
-
 @app.get("/conversations")
 async def get_all_conversations():
-    """Endpoint para o frontend buscar todas as conversas e sugestões atualizadas."""
-    global CONVERSATION_STATE_STORE
+    formatted_conversations = []
+    # Adquirimos a trava antes de LER o estado.
+    # Isso garante que não vamos ler um estado pela metade enquanto a sincronização está rodando.
+    async with STATE_LOCK:
+        # Usamos copy.deepcopy para enviar uma cópia, não a referência original,
+        # para o frontend. Mais seguro.
+        store_copy = copy.deepcopy(CONVERSATION_STATE_STORE)
 
-    # AQUI ESTÁ A MUDANÇA:
-    # Em vez de uma lista, vamos formatar a resposta para que o frontend possa
-    # usar o ID da conversa como chave.
-    formatted_conversations = [
-        {
+    for cid, data in store_copy.items():
+        formatted_conversations.append({
             "id": cid,
             "name": data.get("name"),
             "avatar_url": data.get("avatar_url"),
             "messages": data.get("messages", []),
             "stage_id": data.get("stage_id"),
-        }
-        for cid, data in CONVERSATION_STATE_STORE.items()
-    ]
-
+        })
     return {"status": "success", "conversations": formatted_conversations}
 
 
@@ -474,70 +497,123 @@ async def create_or_update_conversation_details(contact_id: str, contact_data: d
         print(f"  -> [INFO] Detalhes da conversa {contact_id} atualizados.")
 
 
-# --- FUNÇÃO PARA CARREGAR O HISTÓRICO DE CONVERSAS NA INICIALIZAÇÃO ---
+# Em main.py, substitua a função inteira por esta nova versão
+
+# Em main.py, substitua a função inteira por esta versão final.
+
+# Em main.py, substitua a sua função antiga por esta versão final e correta.
+
 async def load_history_from_evolution_api():
-    """Busca todas as conversas e suas mensagens na Evolution API para pré-popular o estado."""
-    print("\n--- INICIANDO SINCRONIZAÇÃO COM A EVOLUTION API ---")
-    global CONVERSATION_STATE_STORE
+    """
+    VERSÃO FINAL (BASEADA EM EVIDÊNCIAS): Lida com a API retornando todas as mensagens
+    misturadas, agrupando-as em Python.
+    """
+    print_info("\n" + "=" * 70)
+    print_info("INICIANDO SINCRONIZAÇÃO (V7 - ESTRATÉGIA DE AGRUPAMENTO)")
+    print_info("=" * 70)
 
-    try:
-        chats_url = f"{EVO_URL}/chat/find-all/{EVO_INSTANCE}"
-        headers = {"apikey": EVO_TOKEN}
+    async with (((((STATE_LOCK))))):
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                headers = {"apikey": EVO_TOKEN, "Content-Type": "application/json"}
 
-        async with httpx.AsyncClient() as client:
-            chats_response = await client.get(chats_url, headers=headers, timeout=30.0)
-            chats_response.raise_for_status()
-            chats = chats_response.json()
+                # =====================================================================
+                # PASSO 1: BUSCAR TODAS AS FONTES DE DADOS
+                # =====================================================================
 
-            print(f"  -> {len(chats)} conversas encontradas na API.")
+                # 1a: Buscar todos os contatos para termos nomes e avatares.
+                print_info("\n[1/3] Buscando lista de contatos...")
+                contacts_url = f"{EVO_URL}/chat/findContacts/{EVO_INSTANCE}"
+                contacts_response = await client.post(contacts_url, headers=headers, json={})
+                contacts_response.raise_for_status()
+                contacts = contacts_response.json() or []
+                print_success(f"✅ Encontrados {len(contacts)} contatos.")
 
-            # 2. Para cada conversa, busca as últimas mensagens
-            for chat in chats:
-                jid = chat.get("jid")
-                if not jid:
-                    continue
+                # 1b: Buscar TODAS as mensagens de TODAS as conversas (com paginação).
+                print_info("\n[2/3] Carregando todo o histórico de mensagens...")
+                all_messages_flat_list = []
+                current_page = 1
+                total_pages = 1
 
-                messages_url = f"{EVO_URL}/chat/find-all-messages-in-chat/{EVO_INSTANCE}"
-                params = {"jid": jid}
-                messages_response = await client.get(messages_url, params=params, headers=headers, timeout=30.0)
+                while current_page <= total_pages:
+                    messages_url = f"{EVO_URL}/chat/findMessages/{EVO_INSTANCE}"
+                    # Note que não passamos JID, pois a API o ignora.
+                    payload = {"limit": 100, "page": current_page}  # Aumentamos o limite por página
 
-                if messages_response.status_code != 200:
-                    continue
+                    response = await client.post(messages_url, headers=headers, json=payload, timeout=60.0)
+                    if response.status_code != 200: break
 
-                messages = messages_response.json()
+                    data = response.json()
+                    message_data = data.get("messages", {})
+                    total_pages = message_data.get("pages", 1)
+                    records = message_data.get("records", [])
+                    if not records: break
 
-                # Formata as mensagens para o nosso padrão
-                formatted_messages = []
-                for msg in messages:
-                    # Ignora mensagens sem conteúdo ou de status
-                    if not msg.get("message"): continue
+                    all_messages_flat_list.extend(records)
+                    print(
+                        f"    - Página {current_page}/{total_pages} carregada... ({len(all_messages_flat_list)} mensagens no total)")
+                    current_page += 1
 
-                    sender = "vendedor" if msg.get("key", {}).get("fromMe") else "cliente"
-                    content = msg.get("message", {}).get("conversation") or \
-                              msg.get("message", {}).get("extendedTextMessage", {}).get("text")
+                print_success(f"✅ Histórico completo de {len(all_messages_flat_list)} mensagens carregado.")
 
-                    if not content: continue
+                # =====================================================================
+                # PASSO 2: ORGANIZAR A BAGUNÇA - Agrupar mensagens por JID
+                # =====================================================================
+                print_info("\n[3/3] Organizando e agrupando mensagens por conversa...")
+                messages_grouped_by_jid = {}
+                for msg in all_messages_flat_list:
+                    key = msg.get("key", {})
+                    remote_jid = key.get("remoteJid")
+                    if not remote_jid: continue
 
-                    formatted_messages.append({
-                        "content": content,
-                        "sender": sender,
-                        "timestamp": msg.get("messageTimestamp"),
-                        "message_id": msg.get("key", {}).get("id")
-                    })
+                    if remote_jid not in messages_grouped_by_jid:
+                        messages_grouped_by_jid[remote_jid] = []
 
-                # 3. Monta o estado da conversa
-                CONVERSATION_STATE_STORE[jid] = {
-                    "name": chat.get("name") or chat.get("pushName") or jid.split('@')[0],
-                    "avatar_url": chat.get("profilePictureUrl") or "",
-                    "messages": formatted_messages,
-                    "suggestions": [],
-                    "stage_id": "stage_prospecting"  # Ou o estágio salvo, se tiver
-                }
+                    message_obj = msg.get("message", {})
+                    content = message_obj.get("conversation") or message_obj.get("extendedTextMessage", {}).get("text")
+                    if content:
+                        messages_grouped_by_jid[remote_jid].append({
+                            "content": content,
+                            "sender": "vendedor" if key.get("fromMe") else "cliente",
+                            "timestamp": msg.get("messageTimestamp", int(time.time())),
+                            "message_id": key.get("id", str(uuid.uuid4()))
+                        })
 
-        print("--- SINCRONIZAÇÃO CONCLUÍDA COM SUCESSO! ---\n")
+                # =====================================================================
+                # PASSO 3: MONTAR O ESTADO FINAL
+                # =====================================================================
+                new_conversation_store: Dict[str, Any] = {}
+                for contact in contacts:
+                    jid = contact.get("remoteJid")
+                    if not jid or "@s.whatsapp.net" not in jid or "@g.us" in jid:
+                        continue
 
-    except Exception as e:
-        print(f"❌ ERRO CRÍTICO durante a sincronização com a API: {e}")
+                    # Pega a lista de mensagens que agrupamos para este JID (ou uma lista vazia).
+                    contact_messages = messages_grouped_by_jid.get(jid, [])
+                    contact_messages.sort(key=lambda x: x["timestamp"])  # Ordena
+
+                    name = contact.get("pushName") or contact.get("name") or jid.split('@')[0]
+                    new_conversation_store[jid] = {
+                        "name": name,
+                        "avatar_url": contact.get("profilePictureUrl") or "",
+                        "messages": contact_messages,
+                        "suggestions": [],
+                        "stage_id": "stage_prospecting"
+                    }
+
+                global CONVERSATION_STATE_STORE
+                CONVERSATION_STATE_STORE = copy.deepcopy(new_conversation_store)
+
+                print_success("\n" + "=" * 70)
+                print_success("SINCRONIZAÇÃO CONCLUÍDA COM SUCESSO!")
+                print_info(
+                    f"📊 Resumo: {len(new_conversation_store)} conversas montadas e {len(all_messages_flat_list)} mensagens distribuídas.")
+                print_info("=" * 70 + "\n")
+
+        except Exception as e:
+            print_error(f"\n❌ ERRO CRÍTICO na sincronização: {e}")
+            import traceback
+            traceback.print_exc()
 
 @app.post("/webhook/evolution")
 async def handle_evolution_webhook(request: Request, background_tasks: BackgroundTasks):
