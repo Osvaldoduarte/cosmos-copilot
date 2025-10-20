@@ -101,8 +101,6 @@ function CopilotPanel({ isLoading, error, suggestions, onUseSuggestion, onDelete
       {error && <div className="error-message">{error}</div>}
 
       <div className="copilot-content-wrapper">
-
-        {/* --- MUDANÇA PRINCIPAL: A ÁREA DE INTERAÇÃO AGORA VEM PRIMEIRO --- */}
         <div className="interaction-area-container">
           <InteractionArea
             onQuerySubmit={onPrivateQuerySubmit}
@@ -110,47 +108,76 @@ function CopilotPanel({ isLoading, error, suggestions, onUseSuggestion, onDelete
           />
         </div>
 
-        {/* Mostra a animação de carregamento */}
         {isLoading && <LoadingAnimation />}
 
-        {/* Mostra as sugestões apenas se não estiver carregando e se houver sugestões */}
-        {!isLoading && suggestions.length > 0 && (
+{suggestions.length > 0 && (
           <div className="copilot-output">
-            {suggestions.map(item => (
-              <div key={item.id} className="suggestion-group">
-                {item.query && ( <blockquote className="suggestion-query">Referente a: "{item.query}"</blockquote> )}
+            {suggestions.map(item => {
+              // AQUI ESTÁ A LÓGICA DE DECISÃO
+              if (item.is_private) {
+                // SE FOR UMA CONSULTA PRIVADA, RENDERIZA O CARD SIMPLES
+                return (
+                  <div key={item.id} className="suggestion-group">
+                    {/* O card agora contém tanto a pergunta quanto a resposta */}
+                    <div className="response-card suggestion-card suggestion-card-private">
 
-                {/* --- CARD DE RESPOSTA IMEDIATA --- */}
-                {item.immediate_answer && ( // Garante que só renderiza se houver resposta imediata
-                  <TonalSuggestionCard
-                      title={item.is_private ? item.private_query : "💡 Sugestão de Resposta"}
-                      // Passa a resposta como uma lista de uma única opção
-                      options={[{ text: item.immediate_answer, is_recommended: true }]}
-                      onUseSuggestion={(text) => onUseSuggestion(item.id, text, 'immediate_answer')}
-                      is_private={item.is_private}
-                      onDelete={() => onDeleteSuggestion(item.id)}
-                  />
-                )}
+                      {/* A pergunta agora é o cabeçalho do card */}
+                      <div className="card-header private-header">
+                        <h3>Sua pergunta: "{item.private_query}"</h3>
+                        <button className="suggestion-delete-btn" onClick={() => onDeleteSuggestion(item.id)}>
+                          <CloseIcon />
+                        </button>
+                      </div>
 
-                {/* --- CARD DE PRÓXIMO PASSO (FOLLOW-UP) --- */}
-                {!item.is_private && item.follow_up_options && item.follow_up_options.length > 0 && (
-                  <TonalSuggestionCard
-                    title="➡️ Próximo Passo Sugerido"
-                    // O follow_up_options já é uma lista, mas passamos apenas o primeiro elemento no nosso novo payload.
-                    // Se o payload for refinado para ter múltiplas opções, este bloco será mais complexo.
-                    options={item.follow_up_options}
-                    onUseSuggestion={(text) => onUseSuggestion(item.id, text, 'follow_up_options')}
-                    is_private={item.is_private}
-                  />
-                )}
+                      {/* A resposta da IA */}
+                      {item.immediate_answer && (
+                        <p>{item.immediate_answer}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              } else {
+                // SE FOR UMA SUGESTÃO PARA O CLIENTE, RENDERIZA O LAYOUT COMPLETO
+                return (
+                  <div key={item.id} className="suggestion-group">
+                    {item.query && ( <blockquote className="suggestion-query">Referente a: "{item.query}"</blockquote> )}
 
-                {/* --- CARD DE VÍDEO (Cérebro 4) --- */}
-                {item.video && <VideoSuggestionCard video={item.video} />}
-              </div>
-            ))}
+                    {/* Card de Resposta Imediata (para o cliente) */}
+                    {item.immediate_answer && (
+                      <div className="response-card suggestion-card">
+                        <div className="card-header">
+                          <h3>💡 Sugestão de Resposta</h3>
+                          <button className="use-suggestion-btn" onClick={() => onUseSuggestion(item.id, item.immediate_answer, 'immediate_answer')}>
+                            Usar
+                          </button>
+                        </div>
+                        <p>{item.immediate_answer}</p>
+                      </div>
+                    )}
+
+                    {/* Card de Próximo Passo (para o cliente) */}
+                    {item.follow_up_options && item.follow_up_options.length > 0 && (
+                      <div className="response-card suggestion-card" style={{marginTop: '1rem'}}>
+                         <div className="card-header">
+                          <h3>➡️ Próximo Passo Sugerido</h3>
+                          <button className="use-suggestion-btn" onClick={() => onUseSuggestion(item.id, item.follow_up_options[0].text, 'follow_up_options')}>
+                            Usar
+                          </button>
+                        </div>
+                        {item.follow_up_options.map((option, index) => (
+                          <p key={index}>{option.text}</p>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Card de Vídeo (se houver) */}
+                    {item.video && <VideoSuggestionCard video={item.video} />}
+                  </div>
+                );
+              }
+            })}
           </div>
         )}
-
       </div>
     </div>
   );

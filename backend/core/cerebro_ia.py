@@ -13,6 +13,8 @@ from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_core.pydantic_v1 import BaseModel, Field
 
+from thefuzz import fuzz
+
 
 # --- CONFIGURAÇÕES GLOBAIS ---
 CORE_DIR = Path(__file__).parent.resolve()
@@ -29,6 +31,18 @@ load_dotenv()
 # --- NOVA LÓGICA DE CONEXÃO AO CHROMA DB ---
 CHROMA_HOST = os.environ.get("CHROMA_HOST")
 api_key = os.environ.get("GEMINI_API_KEY")
+
+class Colors:
+    RED = '\033[91m'
+    BLUE = '\033[94m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    END = '\033[0m'
+
+def print_error(msg): print(f"{Colors.RED}❌ {msg}{Colors.END}")
+def print_info(msg): print(f"{Colors.BLUE}ℹ️  {msg}{Colors.END}")
+def print_success(msg): print(f"{Colors.GREEN}✅ {msg}{Colors.END}")
+def print_warning(msg): print(f"{Colors.YELLOW}⚠️  {msg}{Colors.END}")
 
 if not api_key:
     raise ValueError("A variável de ambiente GEMINI_API_KEY não foi definida.")
@@ -58,31 +72,43 @@ class AIResponse(BaseModel):
     proximo_passo: Optional[str] = Field(
         description="Uma pergunta ou sugestão de próximo passo para o vendedor enviar ao cliente, alinhada com o OBJETIVO ESTRATÉGICO.")
 
+class ClientData(BaseModel):
+    """Estrutura para armazenar os dados extraídos do cliente."""
+    nome: Optional[str] = Field(None, description="O nome do cliente, se mencionado.")
+    empresa: Optional[str] = Field(None, description="O nome da empresa do cliente, se mencionada.")
+    gerente: Optional[str] = Field(None, description="O nome do gerente ou decisor mencionado pelo cliente.")
+    necessidades: Optional[List[str]] = Field(None, description="Uma lista de dores ou necessidades explícitas do cliente (ex: 'emissão de notas', 'valores de mensalidade').")
 
 # --- TEMPLATE DO NOVO SUPER PROMPT ---
 SUPER_PROMPT_TEMPLATE = """
 Você é o "Cosmos Copilot", um assistente de vendas especialista em IA para o sistema CosmosERP.
 
-Sua missão é analisar o contexto completo de uma interação com o cliente e gerar uma resposta estruturada em JSON contendo duas partes: uma resposta técnica para a dúvida atual, e uma sugestão estratégica de próximo passo. O ID do próximo estágio é decidido externamente.
+Sua missão é analisar o contexto completo de uma interação com o cliente e gerar uma resposta estruturada em JSON.
 
 ---
-CONTEXTO GERAL (CÉREBRO 2 - O CLIENTE E A CONVERSA)
-Este é o histórico completo da conversa até agora. Use-o para entender quem é o cliente, o que já foi dito e o tom da conversa.
+ARQUIVO DO CLIENTE (FATOS CONHECIDOS)
+Estes são os dados estruturados que já conhecemos sobre o cliente. Use-os para personalizar sua resposta.
+{client_data}
+---
+CONTEXTO GERAL (CÉREBRO 2 - O HISTÓRICO RELEVANTE)
+Este é o histórico recente ou trechos relevantes da conversa. Use-o para entender o que foi dito.
 {conversation_history}
 ---
 OBJETIVO ESTRATÉGICO (CÉREBRO 3 - O PLAYBOOK DE VENDAS)
 Com base na conversa, o estágio atual da venda é '{stage_name}'. O seu objetivo agora é: '{stage_goal}'.
-
+---
 EVIDÊNCIAS TÉCNICAS (CÉREBRO 1 - A BASE DE CONHECIMENTO)
 Para responder à pergunta do cliente, utilize estritamente as seguintes informações técnicas sobre o produto. Não invente funcionalidades.
 {technical_context}
 ---
 
-PERGUNTA ATUAL DO CLIENTE: "{query}"
+PERGUNTA ATUAL: "{query}"
 
-Baseado em TODOS os contextos acima, gere a sua resposta.
-- Se a pergunta for claramente uma consulta interna do vendedor para tirar uma dúvida, foque em fornecer a 'sugestao_resposta' e retorne o 'proximo_passo' como nulo.
-- Se a pergunta for do cliente, forneça tanto a 'sugestao_resposta' quanto o 'proximo_passo'.
+INSTRUÇÃO CRÍTICA:
+- Se a "PERGUNTA ATUAL" for do cliente, seu objetivo é respondê-lo e avançar a venda. Gere 'sugestao_resposta' e 'proximo_passo'.
+- Se a "PERGUNTA ATUAL" for uma consulta interna do vendedor (ex: "quem é Cristiano?", "qual o valor?"), seu objetivo é responder APENAS ao vendedor. Use o "ARQUIVO DO CLIENTE" e o "CONTEXTO GERAL" para encontrar a resposta. Gere apenas 'sugestao_resposta' e retorne 'proximo_passo' como nulo.
+
+Baseado em TUDO acima, gere sua resposta.
 """
 
 # --- PROMPTS AUXILIARES ---
@@ -120,7 +146,35 @@ Decida e justifique o próximo 'proximo_stage_id' em formato JSON.
 
 STAGE_DECISION_PROMPT = ChatPromptTemplate.from_template(STAGE_DECISION_TEMPLATE)
 
+CLIENT_DATA_EXTRACTION_TEMPLATE = """
+Sua única tarefa é analisar um histórico de conversa e extrair as seguintes informações sobre o cliente: nome, empresa, nome do gerente (se houver) e uma lista de suas necessidades.
+Se uma informação não for mencionada, retorne 'null' para aquele campo.
+
+Histórico da Conversa:
+{conversation_history}
+"""
+
 # --- FUNÇÕES AUXILIARES ---
+
+def extract_client_data_from_history(llm: ChatGoogleGenerativeAI, conversation_history: str) -> ClientData:
+    """
+    Usa um LLM para extrair dados estruturados (nome, empresa, etc.) do histórico de uma conversa.
+    """
+    print("🧠 CÉREBRO 2.5: Extraindo dados estruturados do cliente do histórico...")
+    try:
+        # Monta a cadeia para extração com saída estruturada
+        prompt = ChatPromptTemplate.from_template(CLIENT_DATA_EXTRACTION_TEMPLATE)
+        chain = prompt | llm.with_structured_output(ClientData)
+
+        # Invoca a cadeia com o histórico
+        extracted_data = chain.invoke({"conversation_history": conversation_history})
+
+        print(f"✅ CÉREBRO 2.5: Dados extraídos: {extracted_data.dict()}")
+        return extracted_data
+    except Exception as e:
+        print(f"❌ ERRO ao extrair dados do cliente: {e}")
+        # Retorna um objeto vazio em caso de erro
+        return ClientData()
 
 def get_or_create_conversation_db(conversation_id: str, embedding_function) -> Chroma:
     persist_directory = os.path.join(CHROMA_CONVERSAS_PATH, f"convo_{conversation_id}")
@@ -221,73 +275,69 @@ def get_relevant_video_suggestion(ensemble_retriever: EnsembleRetriever, query: 
         print(f"❌ ERRO ao buscar sugestão de vídeo: {e}")
         return None
 
-def get_hybrid_context_history(conversation_id: str, query: str, embeddings_model, k: int = 10) -> str:
+
+def get_dynamic_conversation_context(
+        conversation_history: List[Dict[str, Any]],
+        query: str,
+        embedding_function
+) -> str:
     """
-    Busca um contexto híbrido: as 'k' mensagens mais recentes + as 'k' mais relevantes para a query.
-    Isso otimiza o número de tokens enviados para o LLM.
+    Usa uma BUSCA HÍBRIDA MANUAL com FUZZY MATCHING e limpeza de pontuação.
     """
-    try:
-        db = get_or_create_conversation_db(conversation_id, embeddings_model)
+    if not conversation_history: return "Nenhum histórico de conversa fornecido."
+    print("🧠 CÉREBRO 2 (FUZZY HÍBRIDO v2): Criando RAG em memória...")
 
-        # --- PARTE 1: BUSCAR MENSAGENS RELEVANTES (RAG) ---
-        # Busca no banco por mensagens semanticamente similares à pergunta atual.
-        relevant_docs = db.similarity_search(query, k=k)
-        print(f"🧠 CÉREBRO 2: Encontradas {len(relevant_docs)} mensagens relevantes.")
+    docs = [Document(page_content=msg["content"], metadata=msg) for msg in conversation_history if msg.get("content")]
+    if not docs: return "Nenhum histórico de conversa encontrado."
 
-        # --- PARTE 2: BUSCAR MENSAGENS RECENTES (CRONOLÓGICO) ---
-        # Pega todas as mensagens para encontrar as mais recentes.
-        all_results = db.get(include=["metadatas", "documents"])
-        if not all_results or not all_results.get('ids'):
-            recent_docs = []
-        else:
-            # Monta a lista completa de mensagens.
-            all_messages = [{**meta, 'content': doc} for meta, doc in
-                            zip(all_results['metadatas'], all_results['documents'])]
-            # Ordena pela data/hora para garantir a ordem cronológica.
-            all_messages.sort(
-                key=lambda x: float(x['timestamp']) if x.get('timestamp') and x['timestamp'] != 'None' else 0,
-                reverse=True)
-            # Pega as 'k' mensagens mais recentes (as primeiras da lista invertida).
-            recent_docs_as_dict = all_messages[:k]
-            # Converte de volta para o formato de Documento do LangChain.
-            recent_docs = [Document(page_content=msg['content'], metadata=msg) for msg in recent_docs_as_dict]
+    # --- LÓGICA DE BUSCA HÍBRIDA MANUAL APRIMORADA ---
+    keyword_hits = []
+    # CORREÇÃO: Removemos a pontuação da query antes de buscar
+    query_words = {word.lower().strip('.,?!') for word in query.split()}
+    similarity_threshold = 85
 
-        print(f"🧠 CÉREBRO 2: Encontradas {len(recent_docs)} mensagens recentes.")
+    for doc in docs:
+        # CORREÇÃO: Removemos a pontuação de cada palavra do documento antes de comparar
+        doc_words = [word.lower().strip('.,?!') for word in doc.page_content.split()]
+        for q_word in query_words:
+            if any(fuzz.ratio(q_word, d_word) > similarity_threshold for d_word in doc_words):
+                keyword_hits.append(doc);
+                break
 
-        # --- PARTE 3: COMBINAR E FORMATAR ---
-        # 1. Combina as duas listas de documentos.
-        combined_docs = relevant_docs + recent_docs
+    print(f"🧠 CÉREBRO 2 (FUZZY HÍBRIDO v2): Encontradas {len(keyword_hits)} mensagens por palavra-chave aproximada.")
 
-        # 2. Remove duplicatas, usando o conteúdo da mensagem como chave.
-        seen_content = set()
-        unique_docs = []
-        for doc in combined_docs:
-            # A normalização (strip) ajuda na identificação de conteúdos idênticos.
-            content_key = doc.page_content.strip()
-            # Adiciona apenas se for a primeira vez que esse conteúdo é visto
-            if content_key not in seen_content:
-                seen_content.add(content_key)
-                unique_docs.append(doc)
+    # Busca Semântica (continua igual)
+    db_temp = Chroma.from_documents(docs, embedding_function)
+    vector_retriever = db_temp.as_retriever(search_kwargs={"k": 5})
+    semantic_hits = vector_retriever.invoke(query)
+    print(f"🧠 CÉREBRO 2 (FUZZY HÍBRIDO v2): Encontradas {len(semantic_hits)} mensagens por similaridade semântica.")
 
-        print(f"🧠 CÉREBRO 2: Contexto final com {len(unique_docs)} mensagens únicas.")
+    # Combinação e Limpeza (continua igual)
+    combined_docs = keyword_hits + semantic_hits
+    seen_content = set();
+    unique_docs = []
+    for doc in combined_docs:
+        content_key = doc.page_content.strip()
+        if content_key not in seen_content:
+            seen_content.add(content_key);
+            unique_docs.append(doc)
+    print(f"🧠 CÉREBRO 2 (FUZZY HÍBRIDO v2): Contexto combinado com {len(unique_docs)} mensagens únicas.")
 
-        # 3. Ordena a lista final pela data/hora (timestamp), do mais antigo para o mais novo (Cronológico).
-        unique_docs.sort(
-            key=lambda doc: float(doc.metadata['timestamp']) if doc.metadata.get('timestamp') and doc.metadata[
-                'timestamp'] != 'None' else 0,
-            reverse=False  # Garante ordem crescente por tempo (mais antigo primeiro)
-        )
+    if not unique_docs:
+        print_warning("Nenhum documento relevante encontrado. Usando as 5 últimas mensagens como fallback.")
+        unique_docs = docs[-5:]
 
-        # 4. Formata o histórico final em uma string legível.
-        formatted_history = "\n".join(
-            [f"{doc.metadata.get('sender', 'desconhecido').capitalize()}: {doc.page_content}" for doc in unique_docs]
-        )
+    unique_docs.sort(key=lambda doc: float(doc.metadata.get('timestamp', 0)))
 
-        return formatted_history if formatted_history else "Nenhum histórico de conversa encontrado."
+    formatted_context = "\n".join(
+        [f"{doc.metadata.get('sender', 'desconhecido').capitalize()}: {doc.page_content}" for doc in unique_docs])
 
-    except Exception as e:
-        print(f"❌ ERRO ao buscar o histórico híbrido da conversa: {e}")
-        return "Não foi possível recuperar o histórico da conversa."
+    print("\n[DEBUG C2] Contexto Final FUZZY HÍBRIDO v2 que será enviado para o Super Prompt:")
+    print("-" * 20);
+    print(formatted_context);
+    print("-" * 20 + "\n")
+
+    return formatted_context
 
 # --- FUNÇÕES PRINCIPAIS ---
 
@@ -335,97 +385,85 @@ def load_models() -> tuple:
     print("✅ LLM, Embedding, DB Técnico e Playbook carregados com sucesso.")
     return llm, ensemble_retriever, embeddings_model, playbook
 
+
+# Em cerebro_ia.py, SUBSTITUA a função generate_sales_suggestions por esta:
+
 def generate_sales_suggestions(
-        llm: ChatGoogleGenerativeAI, ensemble_retriever: EnsembleRetriever, embeddings_model: GoogleGenerativeAIEmbeddings,
-        playbook: Dict[str, Any], query: str, conversation_id: str, current_stage_id: str
+        llm: ChatGoogleGenerativeAI, ensemble_retriever: EnsembleRetriever,
+        embeddings_model: GoogleGenerativeAIEmbeddings,
+        playbook: Dict[str, Any], query: str, conversation_id: str, current_stage_id: str,
+        full_conversation_history: List[Dict[str, Any]],
+        client_data: Dict[str, Any],
+        is_private_query: bool
 ) -> Dict[str, Any]:
-    print("\n--- INICIANDO FLUXO DE GERAÇÃO ESTRATÉGICO V2.2 ---")
+    print("\n--- INICIANDO FLUXO DE GERAÇÃO ESTRATÉGICO V5.1 (DEBUG CÉREBRO 3) ---")
 
-    # --- ETAPA 1: COLETAR CONTEXTO DO CÉREBRO 2 (HISTÓRICO) ---
-    # Usamos nossa função para obter o histórico completo e cronológico da conversa.
-    conversation_history = get_hybrid_context_history(conversation_id, query, embeddings_model)
-    print(f"🧠 CÉREBRO 2: Histórico da conversa carregado.")
+    # ETAPA 1: Cérebro 2 (Histórico Híbrido)
+    conversation_context = get_dynamic_conversation_context(full_conversation_history, query, embeddings_model)
+    print(f"🧠 CÉREBRO 2: Contexto híbrido da conversa carregado.")
 
-    # --- ETAPA 2: DEFINIR ESTRATÉGIA COM CÉREBRO 3 (PLAYBOOK) ---
-    triage_intent = get_intent_from_query(llm, query, TRIAGE_PROMPT)
-
-    if not current_stage_id:
-        current_stage_id = playbook["initial_stage"]
-
-    current_stage_info = playbook["stages"].get(current_stage_id, {})
-    stage_name = current_stage_info.get("name", "Análise Inicial")
-
-    if triage_intent == "pergunta_tecnica":
-        stage_goal = current_stage_info.get("goal", "Responder a uma dúvida técnica específica sobre o produto.")
-    elif triage_intent == "resposta_qualificacao":
-        stage_goal = "Processar as informações fornecidas pelo cliente e confirmar o entendimento."
+    if is_private_query:
+        print("⚡️ ROTA RÁPIDA: Consulta privada do vendedor. Pulando Cérebro 3.")
+        stage_name = "Consulta Interna"
+        stage_goal = "Responder a uma pergunta do vendedor com base no histórico."
+        final_next_stage_id = current_stage_id
     else:
-        stage_goal = "Manter a conversa fluindo e guiar para o próximo passo lógico."
+        # ROTA COMPLETA: Análise de mensagem do cliente.
+        print("🌐 ROTA COMPLETA: Análise de mensagem do cliente. Executando Cérebro 3.")
+        if not current_stage_id: current_stage_id = playbook["initial_stage"]
+        current_stage_info = playbook["stages"].get(current_stage_id, {})
+        stage_name = current_stage_info.get("name", "Análise Inicial")
+        stage_goal = current_stage_info.get("goal", "Responder à dúvida e avançar a conversa.")
+        possible_routes = "\n".join([f"- stage_id: {stage['stage_id']}, condition: {stage['condition']}" for stage in
+                                     current_stage_info.get("possible_next_stages",
+                                                            [])]) or "Nenhuma rota de próximo estágio definida."
 
-    # --- NOVO: Extrair e formatar as rotas possíveis para a DECISÃO DE ESTÁGIO ---
-    possible_next_stages = current_stage_info.get("possible_next_stages", [])
+        # =====================================================================
+        # DEBUG: Printando as entradas do Cérebro 3 antes da chamada
+        # =====================================================================
+        print("\n" + "=" * 20 + " DEBUG: ENTRADA PARA O CÉREBRO 3 " + "=" * 20)
+        print(f"  - Estágio Atual (ID): {current_stage_id}")
+        print(f"  - Pergunta Atual (Query): {query}")
+        print(f"  - Rotas Possíveis:\n{possible_routes}")
+        print(f"  - Histórico da Conversa (Contexto):\n{conversation_context}")
+        print("=" * 67 + "\n")
+        # =====================================================================
 
-    # Formatamos essa lista em uma string legível para ser usada na função decide_next_stage.
-    possible_routes = "\n".join(
-        [f"- stage_id: {stage['stage_id']}, condition: {stage['condition']}" for stage in possible_next_stages]
-    )
-    if not possible_routes:
-        possible_routes = "Nenhuma rota de próximo estágio definida. Mantenha o estágio atual."
+        try:
+            final_next_stage_id = decide_next_stage(
+                llm=llm, conversation_history=conversation_context, current_stage_id=current_stage_id,
+                possible_routes=possible_routes, query=query
+            )
+        except Exception as e:
+            print_error(f"FALHA NO CÉREBRO 3 (Decisão de Estágio): {e}. Mantendo o estágio atual como fallback.")
+            final_next_stage_id = current_stage_id
 
-    # --- NOVO: Tomada de decisão de estágio (Cadeia Separada) ---
-    final_next_stage_id = decide_next_stage(
-        llm=llm,
-        conversation_history=conversation_history,
-        current_stage_id=current_stage_id,
-        possible_routes=possible_routes,
-        query=query
-    )
-
-    # --- ETAPA 3: COLETAR EVIDÊNCIAS DO CÉREBRO 1 (TÉCNICO) ---
-    # Buscamos na base de conhecimento técnica por informações relevantes para a pergunta do cliente.
+    # O restante do fluxo continua...
+    # ETAPA 3: Cérebro 1 (Técnico)
     context_docs = ensemble_retriever.invoke(query)
-    technical_context = "\n\n".join([doc.page_content for doc in context_docs])
-    if not technical_context:
-        technical_context = "Nenhum contexto técnico relevante encontrado."
+    technical_context = "\n\n".join(
+        [doc.page_content for doc in context_docs]) or "Nenhum contexto técnico relevante encontrado."
     print(f"📚 CÉREBRO 1: Contexto técnico recuperado.")
 
-    # --- ETAPA 4: SÍNTESE E CHAMADA ÚNICA AO LLM COM O "SUPER PROMPT" ---
-    # Criamos o prompt a partir do nosso template atualizado.
+    # ETAPA 4: Síntese e Chamada ao LLM
     prompt = ChatPromptTemplate.from_template(SUPER_PROMPT_TEMPLATE)
-
-    # Construímos a cadeia (chain) LangChain, forçando a saída para o nosso modelo AIResponse.
     chain = prompt | llm.with_structured_output(AIResponse)
-
+    client_data_text = json.dumps(client_data, indent=2,
+                                  ensure_ascii=False) if client_data else "Nenhum dado estruturado sobre o cliente foi coletado ainda."
     print("🚀 Montando Super Prompt e fazendo a chamada única ao LLM...")
-    # Invocamos a cadeia com todos os contextos que coletamos, incluindo as novas 'rotas'.
     ai_response = chain.invoke({
-        "conversation_history": conversation_history,
-        "stage_name": stage_name,
-        "stage_goal": stage_goal,
-        "technical_context": technical_context,
-        "query": query
+        "client_data": client_data_text, "conversation_history": conversation_context,
+        "stage_name": stage_name, "stage_goal": stage_goal,
+        "technical_context": technical_context, "query": query
     })
+    print(f"✅ LLM retornou uma resposta estruturada.")
 
-    print(f"✅ LLM retornou uma resposta estruturada. Próximo estágio decidido: '{final_next_stage_id}'")
-
-    # --- NOVO: ETAPA 5 (CÉREBRO 4) - BUSCAR SUGESTÃO DE VÍDEO ---
-    # Chamamos a nova função que busca o vídeo mais relevante.
+    # ETAPAS FINAIS (Vídeo e Formatação do Payload) continuam iguais...
     video_suggestion = get_relevant_video_suggestion(ensemble_retriever, query)
+    suggestion_payload = {"immediate_answer": ai_response.sugestao_resposta, "follow_up_options": []}
+    if ai_response.proximo_passo:
+        suggestion_payload["follow_up_options"].append({"text": ai_response.proximo_passo, "is_recommended": True})
+    if video_suggestion:
+        suggestion_payload["video"] = video_suggestion
 
-    # --- ETAPA 6 (Antiga ETAPA 5) - FORMATAR PAYLOAD PARA O FRONTEND ---
-    # Mapeamos a resposta estruturada da IA para o formato que o frontend espera.
-    suggestion_payload = {
-        "immediate_answer": ai_response.sugestao_resposta,
-        "text_options": [],
-        "follow_up_options": [
-            {
-                "tone": "amigavel",
-                "text": ai_response.proximo_passo,
-                "is_recommended": True
-            }
-        ],
-        "video": video_suggestion  # <--- INCLUSÃO DO OBJETO DE SUGESTÃO DE VÍDEO
-    }
-
-    # O novo ID de estágio agora vem da decisão externa.
     return {"status": "success", "new_stage_id": final_next_stage_id, "suggestions": suggestion_payload}

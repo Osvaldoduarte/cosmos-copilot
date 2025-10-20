@@ -1,5 +1,6 @@
 // Em frontend/src/utils/formatDisplay.js
-
+// URL para uma imagem de perfil padrão no estilo do WhatsApp
+export const DEFAULT_AVATAR_URL = 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png';
 export const formatContactName = (name) => {
   // Se 'name' não for uma string ou estiver vazio, retorna um placeholder.
   if (typeof name !== 'string' || !name) {

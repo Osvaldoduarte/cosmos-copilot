@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { DEFAULT_AVATAR_URL } from '../utils/formatDisplay';
 
 function NewConversationModal({ isOpen, onClose, onStartConversation, isLoading }) {
   const [number, setNumber] = useState('');
@@ -95,8 +96,7 @@ function NewConversationModal({ isOpen, onClose, onStartConversation, isLoading 
           {previewError && <div className="preview-info error">{previewError}</div>}
           {contactPreview && (
             <div className="contact-preview">
-              <img src={contactPreview.avatar_url || `https://i.pravatar.cc/150?u=${number}`} alt="Avatar" />
-              <span>{contactPreview.name}</span>
+<img src={contactPreview.avatar_url || DEFAULT_AVATAR_URL} alt="Avatar" />              <span>{contactPreview.name}</span>
             </div>
           )}
 

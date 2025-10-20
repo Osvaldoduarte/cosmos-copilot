@@ -3,8 +3,10 @@ import ConversationList from './components/ConversationList';
 import ChatPanel from './components/ChatPanel';
 import CopilotPanel from './components/CopilotPanel';
 import NewConversationModal from './components/NewConversationModal'; // 1. IMPORTE o novo componente
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 
-
+import Drawer from 'react-modern-drawer';
+import 'react-modern-drawer/dist/index.css';
 
 function App() {
   // --- ESTADOS INICIAIS ---
@@ -16,6 +18,20 @@ function App() {
   const [suggestionsByConvo, setSuggestionsByConvo] = useState({});
   const [stagesByConvo, setStagesByConvo] = useState({});
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+
+  // --- LÓGICA DE RESPONSIVIDADE ---
+  // Um estado simples para saber se estamos em uma tela "mobile"
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Efeito para lidar com a tecla 'Escape'
   useEffect(() => {
@@ -36,6 +52,13 @@ function App() {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
+const handleToggleCopilot = () => {
+    setIsCopilotOpen(prevState => !prevState);
+  };
+
+  const handleBackToList = () => {
+    setActiveConversationId(null); // Limpa a conversa ativa, fazendo a UI voltar para a lista
+  };
 
   // --- FUNÇÕES DE LÓGICA DO VENDEDOR ---
 
@@ -117,9 +140,16 @@ function App() {
   };
 
   const handleSuggestionRequest = async (query) => {
+  if (isMobile) {
+      setIsCopilotOpen(true);
+    }
+    // ===================================================================
+
     setIsLoading(true);
     setError('');
     const currentStage = stagesByConvo[activeConversationId] || null;
+
+
     try {
       const response = await fetch('http://127.0.0.1:8000/generate_response', {
         method: 'POST',
@@ -139,6 +169,8 @@ function App() {
             is_private: false,
             ...data.suggestions // Inclui immediate_answer, follow_up_options, video
         };
+
+
 
         // 2. Adiciona a sugestão ao topo da lista
         setSuggestionsByConvo(prevMap => ({
@@ -170,7 +202,7 @@ function App() {
         const response = await fetch('http://127.0.0.1:8000/generate_response', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: privateQuery, conversation_id: activeConversationId, current_stage_id: currentStage }),
+            body: JSON.stringify({ query: privateQuery, conversation_id: activeConversationId, current_stage_id: currentStage, is_private_query: true }),
         });
         if (!response.ok) { throw new Error((await response.json()).detail || "Erro desconhecido ao gerar sugestões privadas."); }
 
@@ -230,7 +262,14 @@ function App() {
   const handleClearSuggestions = () => {
     setSuggestionsByConvo(prevMap => ({ ...prevMap, [activeConversationId]: [] }));
   };
-  // ... (Outras funções como handleDeleteSuggestion, useAudio devem ser restauradas)
+const handleDeleteSuggestion = (suggestionId) => {
+    setSuggestionsByConvo(prevMap => {
+      const currentSuggestions = prevMap[activeConversationId] || [];
+      const updatedSuggestions = currentSuggestions.filter(s => s.id !== suggestionId);
+      return { ...prevMap, [activeConversationId]: updatedSuggestions };
+    });
+  };
+
 const handleMessageDrop = (droppedText) => {
   // Quando uma mensagem do cliente é solta, tratamos como uma nova
   // solicitação de sugestão.
@@ -298,7 +337,6 @@ const handleMessageDrop = (droppedText) => {
 
         // Atualiza o estado:
         setConversations(newConversations);
-        setSuggestionsByConvo(newSuggestionsByConvo);
         setStagesByConvo(newStagesByConvo);
 
       }
@@ -316,43 +354,121 @@ const handleMessageDrop = (droppedText) => {
   }, [fetchConversations]);
 
 
-  // --- RENDERIZAÇÃO ---
+// --- RENDERIZAÇÃO ---
   const activeConversation = conversations[activeConversationId];
   const activeSuggestions = suggestionsByConvo[activeConversationId] || [];
+  const unreadCount = Object.values(conversations).reduce((count, convo) => {
+    return convo.unread ? count + 1 : count;
+  }, 0);
+
+
   const sortedConversations = Object.values(conversations).sort((a, b) => b.lastUpdated - a.lastUpdated);
 
+
+
+  // O CopilotPanel agora é uma variável para podermos usá-lo em dois lugares (desktop e mobile)
+  const copilotComponent = (
+    <CopilotPanel
+      isLoading={isLoading}
+      error={error}
+      suggestions={activeSuggestions}
+      onUseSuggestion={handleUseSuggestion}
+      onDeleteSuggestion={handleDeleteSuggestion}
+      onMessageDrop={handleMessageDrop}
+      onClearSuggestions={handleClearSuggestions}
+      onPrivateQuerySubmit={handlePrivateSuggestionRequest}
+    />
+  );
+
   return (
-    <div className="app-container">
-      <ConversationList
-        conversations={sortedConversations}
-        activeConversationId={activeConversationId}
-        onConversationSelect={handleConversationSelect}
-        onNewConversationClick={() => setIsModalOpen(true)}
-        />
-      <ChatPanel
-        key={activeConversationId}
-        activeConversation={conversations[activeConversationId]}
-        onCustomerQuerySubmit={handleCustomerMessageSubmit}
-        onSellerResponseSubmit={(text) => handleUseSuggestion(Date.now(), text, 'follow_up_options')}
-        isLoading={isLoading}
-      />
-      <CopilotPanel
-        isLoading={isLoading}
-        error={error}
-        suggestions={activeSuggestions}
-        onUseSuggestion={handleUseSuggestion}
-        onMessageDrop={handleMessageDrop}
-        onClearSuggestions={handleClearSuggestions}
-        onPrivateQuerySubmit={handlePrivateSuggestionRequest}
-        // ... (o restante das props)
-      />
+    <>
+      <div className="app-container">
+        {isMobile ? (
+          // --- LÓGICA PARA RENDERIZAÇÃO EM TELAS PEQUENAS (MOBILE) ---
+          <>
+            {!activeConversationId ? (
+              // Se nenhuma conversa estiver ativa, mostra a lista
+              <ConversationList
+                conversations={sortedConversations}
+                activeConversationId={activeConversationId}
+                onConversationSelect={handleConversationSelect}
+                onNewConversationClick={() => setIsModalOpen(true)}
+              />
+            ) : (
+              // Se uma conversa estiver ativa, mostra o painel de chat
+              <ChatPanel
+                key={activeConversationId}
+                activeConversationId={activeConversationId}
+                activeConversation={conversations[activeConversationId]}
+                onSellerResponseSubmit={(text) => handleUseSuggestion(Date.now(), text, 'follow_up_options')}
+                isLoading={isLoading}
+                onToggleCopilot={handleToggleCopilot}
+                unreadCount={unreadCount}
+                onBack={handleBackToList}
+                onMessageDragAnalyze={handleSuggestionRequest}
+                isMobile={isMobile}
+              />
+            )}
+          </>
+        ) : (
+          // --- LÓGICA PARA RENDERIZAÇÃO EM TELAS GRANDES (DESKTOP) ---
+          // NOTA: Se o bug de 33/33/33 persistir, precisamos ajustar o CSS aqui.
+          <PanelGroup direction="horizontal">
+            <Panel defaultSizePercentage={25} minSizePercentage={15}>
+              <ConversationList
+                conversations={sortedConversations}
+                activeConversationId={activeConversationId}
+                onConversationSelect={handleConversationSelect}
+                onNewConversationClick={() => setIsModalOpen(true)}
+              />
+            </Panel>
+
+            <PanelResizeHandle />
+
+            <Panel defaultSizePercentage={50} minSizePercentage={30}>
+              <ChatPanel
+                key={activeConversationId}
+                activeConversationId={activeConversationId}
+                activeConversation={conversations[activeConversationId]}
+                onSellerResponseSubmit={(text) => handleUseSuggestion(Date.now(), text, 'follow_up_options')}
+                isLoading={isLoading}
+                onMessageDragAnalyze={handleSuggestionRequest}
+                isMobile={isMobile}
+              />
+            </Panel>
+
+            <PanelResizeHandle />
+
+            <Panel defaultSizePercentage={25} minSizePercentage={20}>
+              {copilotComponent}
+            </Panel>
+          </PanelGroup>
+        )}
+      </div>
+
+      {/* --- O PAINEL DESLIZANTE (DRAWER) PARA MOBILE --- */}
+      {/* Ele vive fora do layout principal e só é renderizado em telas mobile */}
+      {isMobile && (
+        <Drawer
+            open={isCopilotOpen}
+            onClose={() => setIsCopilotOpen(false)}
+            direction='right'
+            size={'80vw'} // Ocupa 80% da largura da tela, como você sugeriu
+            className='copilot-drawer'
+        >
+            {/* O conteúdo do painel deslizante é o nosso CopilotPanel */}
+            {copilotComponent}
+        </Drawer>
+      )}
+
+      {/* O Modal de Nova Conversa continua aqui, para flutuar sobre tudo */}
       <NewConversationModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onStartConversation={handleStartConversation}
         isLoading={isLoading}
       />
-    </div>
+    </>
   );
 }
 

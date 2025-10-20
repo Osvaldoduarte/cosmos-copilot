@@ -47,6 +47,7 @@ class SuggestionRequest(BaseModel):
     query: str
     conversation_id: str
     current_stage_id: str | None = Field(default=None)
+    is_private_query: bool = Field(default=False)
 
 class MessageSendRequest(BaseModel):
     conversation_id: str
@@ -342,41 +343,64 @@ async def get_profile_pic_url(jid: str) -> str:
         print(f"AVISO: Não foi possível obter a foto de perfil para {jid}: {e}")
         return default_pic
 
+
 async def process_and_broadcast_message(conversation_id: str, message_obj: Dict[str, Any]):
     """
-    Processa a mensagem, salvando-a no RAG (Cérebro 2) e no estado global para o frontend.
+    Processa a mensagem, atualiza o estado, salva no RAG e extrai dados do cliente.
     """
     global CONVERSATION_STATE_STORE
 
     try:
-        # --- ETAPA 1: Salvar no RAG para a memória da IA (Cérebro 2) ---
-        print(f"  -> Salvando mensagem de '{conversation_id}' na memória RAG (Cérebro 2)...")
-        # Garante que o banco de dados da conversa exista ou seja criado
-        db_conversa = cerebro_ia.get_or_create_conversation_db(conversation_id, embeddings_model)
-        # Adiciona a mensagem ao banco de dados persistente
-        cerebro_ia.add_message_to_conversation_rag(db_conversa, conversation_id, message_obj)
-        print(f"  -> Mensagem salva no RAG com sucesso.")
-
-        # --- ETAPA 2: Atualizar o estado global para o polling do Frontend ---
+        # --- ETAPA 1: Atualizar o estado global para o polling do Frontend ---
         print(f"  -> Atualizando estado global para a interface do usuário...")
-        # Cria a estrutura da conversa na memória se for a primeira vez
+        # Garante que a conversa exista na memória
         if conversation_id not in CONVERSATION_STATE_STORE:
             CONVERSATION_STATE_STORE[conversation_id] = {
-                "id": conversation_id,
                 "name": conversation_id.split('@')[0],
                 "messages": [],
                 "stage_id": playbook["initial_stage"],
-                "suggestions": []
+                "suggestions": [],
+                "dados_cliente": {}
             }
 
-        # Adiciona a mensagem à lista que o frontend exibe
+        # Adiciona a nova mensagem à lista
         CONVERSATION_STATE_STORE[conversation_id]["messages"].append(message_obj)
         print(f"  -> Estado global atualizado com sucesso.")
+
+        # --- ETAPA 2: Salvar no RAG para a memória de longo prazo da IA ---
+        # print(f"  -> Salvando mensagem de '{conversation_id}' na memória RAG (Cérebro 2)...")
+        # db_conversa = cerebro_ia.get_or_create_conversation_db(conversation_id, embeddings_model)
+        # cerebro_ia.add_message_to_conversation_rag(db_conversa, conversation_id, message_obj)
+        # print(f"  -> Mensagem salva no RAG com sucesso.")
+        # NOTA: O salvamento no RAG persistente está desativado conforme nossa conversa anterior.
+
+        # --- ETAPA 3 (NOVA): Extrair e atualizar os dados do cliente ---
+        # Só executamos essa etapa custosa se a mensagem for do cliente
+        if message_obj.get("sender") == "cliente":
+            # Pega o histórico completo e atualizado
+            full_history = CONVERSATION_STATE_STORE[conversation_id].get("messages", [])
+
+            # Formata o histórico para uma string simples que a IA entende
+            history_text = "\n".join([f"{msg['sender'].capitalize()}: {msg['content']}" for msg in full_history])
+
+            # Chama nosso "Mini-Cérebro" extrator
+            extracted_data = cerebro_ia.extract_client_data_from_history(llm, history_text)
+
+            # Pega os dados que já tínhamos...
+            current_client_data = CONVERSATION_STATE_STORE[conversation_id].get("dados_cliente", {})
+            # ...e os novos dados extraídos (ignorando campos nulos)...
+            new_client_data = extracted_data.dict(exclude_unset=True)
+
+            # ...e faz o merge, atualizando a "ficha do cliente".
+            current_client_data.update(new_client_data)
+            CONVERSATION_STATE_STORE[conversation_id]["dados_cliente"] = current_client_data
+            print(f"  -> 'Arquivo do Cliente' atualizado: {current_client_data}")
 
     except Exception as e:
         import traceback
         print(f"❌ ERRO na tarefa em background 'process_and_broadcast_message': {e}")
         traceback.print_exc()
+
 # Novo Endpoint para o frontend disparar o envio da resposta do vendedor
 
 
@@ -438,12 +462,19 @@ async def get_all_conversations():
     return {"status": "success", "conversations": formatted_conversations}
 
 
-# Em backend/main.py
-
 @app.post("/generate_response")
 async def generate_response(request: SuggestionRequest):
-    """Gera sugestões de venda e as formata para o frontend."""
+    """Gera sugestões de venda usando a memória estruturada e o RAG dinâmico."""
     try:
+        # 1. Pega os dados completos da conversa do nosso estado em memória
+        conversation_data = CONVERSATION_STATE_STORE.get(request.conversation_id)
+        if not conversation_data:
+            raise HTTPException(status_code=404, detail="Conversa não encontrada.")
+
+        full_history = conversation_data.get("messages", [])
+        client_data = conversation_data.get("dados_cliente", {})  # <-- PEGA OS DADOS DO CLIENTE
+
+        # 2. Chama a função do cérebro passando todos os contextos
         resultado_ia = cerebro_ia.generate_sales_suggestions(
             llm=llm,
             ensemble_retriever=ensemble_retriever,
@@ -451,29 +482,18 @@ async def generate_response(request: SuggestionRequest):
             playbook=playbook,
             query=request.query,
             conversation_id=request.conversation_id,
-            current_stage_id=request.current_stage_id
+            current_stage_id=request.current_stage_id,
+            full_conversation_history=full_history,
+            client_data=client_data,
+            is_private_query=request.is_private_query
         )
-
-        # --- A CORREÇÃO ESTÁ AQUI ---
-        # Acessamos os dados como um dicionário, usando .get() que é mais seguro
-        suggestions_dict = {
-            "immediate_answer": resultado_ia.get('resposta_imediata'),
-            "follow_up_options": resultado_ia.get('opcoes_follow_up', []),
-            "video": resultado_ia.get('video'),
-        }
-
-        return {
-            "status": "success",
-            "suggestions": suggestions_dict,
-            "new_stage_id": resultado_ia.get('novo_stage_id')
-        }
+        return resultado_ia
 
     except Exception as e:
         import traceback
         print(f"❌ ERRO CRÍTICO em /generate_response: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
 async def create_or_update_conversation_details(contact_id: str, contact_data: dict):
     """Cria uma nova conversa se não existir, ou atualiza nome e foto se já existir."""
     if contact_id not in CONVERSATION_STATE_STORE:
@@ -497,31 +517,22 @@ async def create_or_update_conversation_details(contact_id: str, contact_data: d
         print(f"  -> [INFO] Detalhes da conversa {contact_id} atualizados.")
 
 
-# Em main.py, substitua a função inteira por esta nova versão
-
-# Em main.py, substitua a função inteira por esta versão final.
-
-# Em main.py, substitua a sua função antiga por esta versão final e correta.
+# Em main.py, substitua a função inteira por esta versão
 
 async def load_history_from_evolution_api():
     """
-    VERSÃO FINAL (BASEADA EM EVIDÊNCIAS): Lida com a API retornando todas as mensagens
-    misturadas, agrupando-as em Python.
+    VERSÃO ATUALIZADA (V9.1): Cria a estrutura 'dados_cliente' para cada conversa.
     """
     print_info("\n" + "=" * 70)
-    print_info("INICIANDO SINCRONIZAÇÃO (V7 - ESTRATÉGIA DE AGRUPAMENTO)")
+    print_info("INICIANDO SINCRONIZAÇÃO (V9.1 - CRIANDO ARQUIVO DO CLIENTE)")
     print_info("=" * 70)
 
-    async with (((((STATE_LOCK))))):
+    async with STATE_LOCK:
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 headers = {"apikey": EVO_TOKEN, "Content-Type": "application/json"}
 
-                # =====================================================================
-                # PASSO 1: BUSCAR TODAS AS FONTES DE DADOS
-                # =====================================================================
-
-                # 1a: Buscar todos os contatos para termos nomes e avatares.
+                # PASSO 1: Buscar Contatos
                 print_info("\n[1/3] Buscando lista de contatos...")
                 contacts_url = f"{EVO_URL}/chat/findContacts/{EVO_INSTANCE}"
                 contacts_response = await client.post(contacts_url, headers=headers, json={})
@@ -529,46 +540,34 @@ async def load_history_from_evolution_api():
                 contacts = contacts_response.json() or []
                 print_success(f"✅ Encontrados {len(contacts)} contatos.")
 
-                # 1b: Buscar TODAS as mensagens de TODAS as conversas (com paginação).
+                # PASSO 2: Carregar Histórico Completo
                 print_info("\n[2/3] Carregando todo o histórico de mensagens...")
                 all_messages_flat_list = []
-                current_page = 1
-                total_pages = 1
-
+                current_page, total_pages = 1, 1
                 while current_page <= total_pages:
                     messages_url = f"{EVO_URL}/chat/findMessages/{EVO_INSTANCE}"
-                    # Note que não passamos JID, pois a API o ignora.
-                    payload = {"limit": 100, "page": current_page}  # Aumentamos o limite por página
-
+                    payload = {"limit": 100, "page": current_page}
                     response = await client.post(messages_url, headers=headers, json=payload, timeout=60.0)
                     if response.status_code != 200: break
-
                     data = response.json()
                     message_data = data.get("messages", {})
                     total_pages = message_data.get("pages", 1)
                     records = message_data.get("records", [])
                     if not records: break
-
                     all_messages_flat_list.extend(records)
-                    print(
-                        f"    - Página {current_page}/{total_pages} carregada... ({len(all_messages_flat_list)} mensagens no total)")
+                    print(f"    - Página {current_page}/{total_pages} carregada...")
                     current_page += 1
+                print_success(f"✅ Histórico de {len(all_messages_flat_list)} mensagens carregado.")
 
-                print_success(f"✅ Histórico completo de {len(all_messages_flat_list)} mensagens carregado.")
-
-                # =====================================================================
-                # PASSO 2: ORGANIZAR A BAGUNÇA - Agrupar mensagens por JID
-                # =====================================================================
-                print_info("\n[3/3] Organizando e agrupando mensagens por conversa...")
+                # PASSO 3: Agrupar mensagens e montar o estado final
+                print_info("\n[3/3] Montando estado para o frontend...")
                 messages_grouped_by_jid = {}
                 for msg in all_messages_flat_list:
                     key = msg.get("key", {})
                     remote_jid = key.get("remoteJid")
                     if not remote_jid: continue
-
                     if remote_jid not in messages_grouped_by_jid:
                         messages_grouped_by_jid[remote_jid] = []
-
                     message_obj = msg.get("message", {})
                     content = message_obj.get("conversation") or message_obj.get("extendedTextMessage", {}).get("text")
                     if content:
@@ -579,35 +578,32 @@ async def load_history_from_evolution_api():
                             "message_id": key.get("id", str(uuid.uuid4()))
                         })
 
-                # =====================================================================
-                # PASSO 3: MONTAR O ESTADO FINAL
-                # =====================================================================
                 new_conversation_store: Dict[str, Any] = {}
                 for contact in contacts:
                     jid = contact.get("remoteJid")
                     if not jid or "@s.whatsapp.net" not in jid or "@g.us" in jid:
                         continue
-
-                    # Pega a lista de mensagens que agrupamos para este JID (ou uma lista vazia).
                     contact_messages = messages_grouped_by_jid.get(jid, [])
-                    contact_messages.sort(key=lambda x: x["timestamp"])  # Ordena
-
+                    contact_messages.sort(key=lambda x: x["timestamp"])
                     name = contact.get("pushName") or contact.get("name") or jid.split('@')[0]
+
+                    # --- AQUI ESTÁ A MUDANÇA ---
                     new_conversation_store[jid] = {
                         "name": name,
-                        "avatar_url": contact.get("profilePictureUrl") or "",
+                        "avatar_url": contact.get("profilePicUrl") or "",
                         "messages": contact_messages,
                         "suggestions": [],
+                        "dados_cliente": {},  # Cria o campo para os dados estruturados
                         "stage_id": "stage_prospecting"
                     }
+                    # --------------------------
 
                 global CONVERSATION_STATE_STORE
                 CONVERSATION_STATE_STORE = copy.deepcopy(new_conversation_store)
 
                 print_success("\n" + "=" * 70)
-                print_success("SINCRONIZAÇÃO CONCLUÍDA COM SUCESSO!")
-                print_info(
-                    f"📊 Resumo: {len(new_conversation_store)} conversas montadas e {len(all_messages_flat_list)} mensagens distribuídas.")
+                print_success("SINCRONIZAÇÃO PARA FRONTEND CONCLUÍDA COM SUCESSO!")
+                print_info(f"📊 Resumo: {len(new_conversation_store)} conversas montadas.")
                 print_info("=" * 70 + "\n")
 
         except Exception as e:
@@ -665,6 +661,7 @@ async def handle_evolution_webhook(request: Request, background_tasks: Backgroun
             if message_content:
                 message_obj = {"content": message_content, "sender": "cliente",
                                "timestamp": data.get("messageTimestamp"), "message_id": data.get("key", {}).get("id")}
+
                 background_tasks.add_task(process_and_broadcast_message, conversation_to_update, message_obj)
 
     except Exception as e:

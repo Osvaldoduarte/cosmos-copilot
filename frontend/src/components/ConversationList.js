@@ -1,7 +1,7 @@
 // Em frontend/src/components/ConversationList.js
-
 import React, { useState } from 'react';
 
+import { DEFAULT_AVATAR_URL } from '../utils/formatDisplay';
 
 // Ícone simples de pesquisa
 const SearchIcon = () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>);
@@ -45,8 +45,7 @@ function ConversationList({ conversations, activeConversationId, onConversationS
           className={`conversation-item ${convo.id === activeConversationId ? 'active' : ''}`}
           onClick={() => onConversationSelect(convo.id)}
         >
-          <img src={convo.avatarUrl || `https://i.pravatar.cc/150?u=${convo.id}`} alt={convo.name} className="avatar" />
-          <div className="conversation-details">
+<img src={convo.avatarUrl || DEFAULT_AVATAR_URL} alt={convo.name} className="avatar" />          <div className="conversation-details">
             <div className="conversation-header">
               <span className="conversation-name">{convo.name}</span>
             </div>
