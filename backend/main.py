@@ -109,12 +109,29 @@ def authenticate_user(username: str, password: str) -> Optional[User]:
     Busca o usuário e verifica a senha.
     Retorna o objeto User se for válido, senão None.
     """
+    # ================== DEBUG PONTO 2: RASTREAR AUTENTICAÇÃO INTERNA ==================
+    print("\n--- [DEBUG authenticate_user] Iniciando verificação ---")
+    print(f"Buscando usuário: '{username}'")
     user_data = database.get_user(username)
+
     if not user_data:
+        print("[DEBUG authenticate_user] Usuário NÃO encontrado no database.py.")
         return None
-    if not security.verify_password(password, user_data["hashed_password"]):
+    else:
+        print(f"[DEBUG authenticate_user] Usuário encontrado: {user_data.get('username')}")
+
+    stored_hashed_password = user_data.get("hashed_password")
+    print(f"[DEBUG authenticate_user] Hash armazenado: '{stored_hashed_password}'")
+    print(f"[DEBUG authenticate_user] Verificando senha digitada ('{password}') contra o hash...")
+
+    is_password_correct = security.verify_password(password, stored_hashed_password)
+
+    if not is_password_correct:
+        print("[DEBUG authenticate_user] Verificação de senha: INCORRETA.")
         return None
-    return User(**user_data)
+    else:
+        print("[DEBUG authenticate_user] Verificação de senha: CORRETA.")
+        return User(**user_data)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -138,22 +155,33 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     """
     Recebe username e password de um formulário e retorna um JWT.
     """
+    # ================== DEBUG PONTO 1: VERIFICAR DADOS RECEBIDOS ==================
+    print("\n--- [DEBUG /token] Tentativa de Login Recebida ---")
+    print(f"Username recebido: '{form_data.username}'")
+    print(f"Password recebido: '{form_data.password}'")
+    # ===========================================================================
+
     user = authenticate_user(form_data.username, form_data.password)
+
+    # ================== DEBUG PONTO 3: VERIFICAR RESULTADO DA AUTENTICAÇÃO ==================
     if not user:
+        print("--- [DEBUG /token] Resultado da Autenticação: FALHA (Usuário NÃO encontrado ou senha incorreta)")
+        print("-" * 50 + "\n")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Nome de usuário ou senha incorretos",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    else:
+        print(f"--- [DEBUG /token] Resultado da Autenticação: SUCESSO (Usuário: {user.username})")
+        print("-" * 50 + "\n")
+    # ===================================================================================
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-
-    # Armazenamos o username (sub) e o tenant_id no token
     access_token = create_access_token(
         data={"sub": user.username, "tenant_id": user.tenant_id},
         expires_delta=access_token_expires
     )
-
     return {"access_token": access_token, "token_type": "bearer"}
 
 async def get_current_active_user(token: str = Depends(oauth2_scheme)) -> User:
@@ -196,6 +224,33 @@ async def get_current_user_for_websocket(token: Optional[str] = None) -> User:
     return await get_current_active_user(token)
 
 
+@app.post("/conversations/{jid:path}/mark-read") # <--- VERIFIQUE ESTA LINHA
+async def mark_conversation_as_read(jid: str, current_user: User = Depends(get_current_active_user)):
+    """
+    Marca uma conversa específica como lida (unread = False).
+    """
+    global CONVERSATION_STATE_STORE
+
+    # Usa a busca inteligente para encontrar o JID correto
+    conversation_to_update = find_existing_conversation_jid(jid)
+    if not conversation_to_update:
+        conversation_to_update = jid
+
+    async with STATE_LOCK: # Protege a escrita no estado global
+        if conversation_to_update in CONVERSATION_STATE_STORE:
+                # Verifica se realmente precisa atualizar
+                if CONVERSATION_STATE_STORE[conversation_to_update].get("unread", False):
+                    CONVERSATION_STATE_STORE[conversation_to_update]["unread"] = False
+                    CONVERSATION_STATE_STORE[conversation_to_update]["unreadCount"] = 0 # <-- RESETA A CONTAGEM
+                    print(f"INFO: Conversa '{conversation_to_update}' marcada como LIDA. Contagem resetada.")
+                    return {"status": "success", "message": "Conversation marked as read."}
+                else:
+                    # Se já estava lida, apenas garante que a contagem é 0
+                    CONVERSATION_STATE_STORE[conversation_to_update]["unreadCount"] = 0
+                    return {"status": "success", "message": "Conversation was already read."}
+        else:
+             print(f"AVISO: Tentativa de marcar como lida uma conversa não encontrada no estado: {conversation_to_update}")
+             return {"status": "success", "message": "Conversation not found in current state, but proceeding."}
 # ===================================================================
 #           FIM DO CÓDIGO DO "PORTEIRO"
 # ===================================================================
@@ -481,55 +536,40 @@ async def get_profile_pic_url(jid: str) -> str:
 
 async def process_and_broadcast_message(conversation_id: str, message_obj: Dict[str, Any]):
     """
-    Processa a mensagem, atualiza o estado, salva no RAG e extrai dados do cliente.
+    Processa a mensagem, atualiza o estado (marcando como não lida) e extrai dados do cliente.
     """
     global CONVERSATION_STATE_STORE
 
     try:
-        # --- ETAPA 1: Atualizar o estado global para o polling do Frontend ---
-        print(f"  -> Atualizando estado global para a interface do usuário...")
-        # Garante que a conversa exista na memória
-        if conversation_id not in CONVERSATION_STATE_STORE:
-            CONVERSATION_STATE_STORE[conversation_id] = {
-                "name": conversation_id.split('@')[0],
-                "messages": [],
-                "stage_id": playbook["initial_stage"],
-                "suggestions": [],
-                "dados_cliente": {}
-            }
+        # --- ETAPA 1: Atualizar o estado global ---
+        print(f"  -> Atualizando estado para {conversation_id}...")
 
-        # Adiciona a nova mensagem à lista
-        CONVERSATION_STATE_STORE[conversation_id]["messages"].append(message_obj)
-        print(f"  -> Estado global atualizado com sucesso.")
+        async with STATE_LOCK:  # Garante acesso seguro ao estado
+            # Garante que a conversa exista na memória
+            if conversation_id not in CONVERSATION_STATE_STORE:
+                CONVERSATION_STATE_STORE[conversation_id] = {
+                    "name": conversation_id.split('@')[0], "messages": [], "stage_id": playbook["initial_stage"],
+                    "suggestions": [], "dados_cliente": {}, "unread": False, "unreadCount": 0, "lastUpdated": 0
+                }
+                # Garante que unreadCount exista se a conversa já existia antes
+            if "unreadCount" not in CONVERSATION_STATE_STORE[conversation_id]:
+                CONVERSATION_STATE_STORE[conversation_id]["unreadCount"] = 0
 
-        # --- ETAPA 2: Salvar no RAG para a memória de longo prazo da IA ---
-        # print(f"  -> Salvando mensagem de '{conversation_id}' na memória RAG (Cérebro 2)...")
-        # db_conversa = cerebro_ia.get_or_create_conversation_db(conversation_id, embeddings_model)
-        # cerebro_ia.add_message_to_conversation_rag(db_conversa, conversation_id, message_obj)
-        # print(f"  -> Mensagem salva no RAG com sucesso.")
-        # NOTA: O salvamento no RAG persistente está desativado conforme nossa conversa anterior.
+                # Adiciona a mensagem e atualiza o timestamp
+            CONVERSATION_STATE_STORE[conversation_id]["messages"].append(message_obj)
+            CONVERSATION_STATE_STORE[conversation_id]["lastUpdated"] = message_obj.get("timestamp",
+                                                                                       int(time.time())) * 1000
 
-        # --- ETAPA 3 (NOVA): Extrair e atualizar os dados do cliente ---
-        # Só executamos essa etapa custosa se a mensagem for do cliente
-        if message_obj.get("sender") == "cliente":
-            # Pega o histórico completo e atualizado
-            full_history = CONVERSATION_STATE_STORE[conversation_id].get("messages", [])
-
-            # Formata o histórico para uma string simples que a IA entende
-            history_text = "\n".join([f"{msg['sender'].capitalize()}: {msg['content']}" for msg in full_history])
-
-            # Chama nosso "Mini-Cérebro" extrator
-            extracted_data = cerebro_ia.extract_client_data_from_history(llm, history_text)
-
-            # Pega os dados que já tínhamos...
-            current_client_data = CONVERSATION_STATE_STORE[conversation_id].get("dados_cliente", {})
-            # ...e os novos dados extraídos (ignorando campos nulos)...
-            new_client_data = extracted_data.dict(exclude_unset=True)
-
-            # ...e faz o merge, atualizando a "ficha do cliente".
-            current_client_data.update(new_client_data)
-            CONVERSATION_STATE_STORE[conversation_id]["dados_cliente"] = current_client_data
-            print(f"  -> 'Arquivo do Cliente' atualizado: {current_client_data}")
+            # Marca como não lida e incrementa a contagem SE for do cliente
+            if message_obj.get("sender") == "cliente":
+                CONVERSATION_STATE_STORE[conversation_id]["unread"] = True
+                CONVERSATION_STATE_STORE[conversation_id]["unreadCount"] += 1  # <-- INCREMENTA A CONTAGEM
+                print(
+                    f"  -> Conversa '{conversation_id}' marcada como NÃO LIDA. Contagem: {CONVERSATION_STATE_STORE[conversation_id]['unreadCount']}.")
+            else:
+                # Se for do vendedor, apenas garante que está marcada como lida (se necessário)
+                # CONVERSATION_STATE_STORE[conversation_id]["unread"] = False # Opcional: marcar como lida qdo vendedor envia?
+                print(f"  -> Mensagem do vendedor processada para '{conversation_id}'.")
 
     except Exception as e:
         import traceback
@@ -590,12 +630,20 @@ async def get_all_conversations(current_user: User = Depends(get_current_active_
         store_copy = copy.deepcopy(CONVERSATION_STATE_STORE)
 
     for cid, data in store_copy.items():
+        # Pega a última mensagem para fallback de lastUpdated
+        last_msg_ts = data.get("messages", [{}])[-1].get("timestamp", 0) * 1000
+
         formatted_conversations.append({
             "id": cid,
             "name": data.get("name"),
             "avatar_url": data.get("avatar_url"),
             "messages": data.get("messages", []),
+            "unread": data.get("unread", False),  # <-- GARANTIR QUE ESTÁ AQUI
+            "unreadCount": data.get("unreadCount", 0),  # <-- ADICIONE/CONFIRME ESTA LINHA
+            "lastUpdated": data.get("lastUpdated", last_msg_ts),  # <-- GARANTIR QUE ESTÁ AQUI
             "stage_id": data.get("stage_id"),
+            # Adicionamos dados_cliente aqui também, pode ser útil no futuro
+            "dados_cliente": data.get("dados_cliente", {}),
         })
     return {"status": "success", "conversations": formatted_conversations}
 
@@ -658,12 +706,6 @@ async def create_or_update_conversation_details(contact_id: str, contact_data: d
 # Em main.py, substitua a função inteira por esta versão
 
 async def load_history_from_evolution_api():
-    """
-    VERSÃO ATUALIZADA (V9.1): Cria a estrutura 'dados_cliente' para cada conversa.
-    """
-    print_info("\n" + "=" * 70)
-    print_info("INICIANDO SINCRONIZAÇÃO (V9.1 - CRIANDO ARQUIVO DO CLIENTE)")
-    print_info("=" * 70)
 
     async with STATE_LOCK:
         try:
@@ -671,7 +713,6 @@ async def load_history_from_evolution_api():
                 headers = {"apikey": EVO_TOKEN, "Content-Type": "application/json"}
 
                 # PASSO 1: Buscar Contatos
-                print_info("\n[1/3] Buscando lista de contatos...")
                 contacts_url = f"{EVO_URL}/chat/findContacts/{EVO_INSTANCE}"
                 contacts_response = await client.post(contacts_url, headers=headers, json={})
                 contacts_response.raise_for_status()
@@ -679,7 +720,6 @@ async def load_history_from_evolution_api():
                 print_success(f"✅ Encontrados {len(contacts)} contatos.")
 
                 # PASSO 2: Carregar Histórico Completo
-                print_info("\n[2/3] Carregando todo o histórico de mensagens...")
                 all_messages_flat_list = []
                 current_page, total_pages = 1, 1
                 while current_page <= total_pages:
@@ -698,7 +738,6 @@ async def load_history_from_evolution_api():
                 print_success(f"✅ Histórico de {len(all_messages_flat_list)} mensagens carregado.")
 
                 # PASSO 3: Agrupar mensagens e montar o estado final
-                print_info("\n[3/3] Montando estado para o frontend...")
                 messages_grouped_by_jid = {}
                 for msg in all_messages_flat_list:
                     key = msg.get("key", {})
@@ -717,31 +756,43 @@ async def load_history_from_evolution_api():
                         })
 
                 new_conversation_store: Dict[str, Any] = {}
+                conversations_added = 0  # Contador para o log
                 for contact in contacts:
                     jid = contact.get("remoteJid")
                     if not jid or "@s.whatsapp.net" not in jid or "@g.us" in jid:
                         continue
-                    contact_messages = messages_grouped_by_jid.get(jid, [])
-                    contact_messages.sort(key=lambda x: x["timestamp"])
-                    name = contact.get("pushName") or contact.get("name") or jid.split('@')[0]
 
-                    # --- AQUI ESTÁ A MUDANÇA ---
-                    new_conversation_store[jid] = {
-                        "name": name,
-                        "avatar_url": contact.get("profilePicUrl") or "",
-                        "messages": contact_messages,
-                        "suggestions": [],
-                        "dados_cliente": {},  # Cria o campo para os dados estruturados
-                        "stage_id": "stage_prospecting"
-                    }
-                    # --------------------------
+                    # Pega a lista de mensagens que agrupamos para este JID (ou uma lista vazia).
+                    contact_messages = messages_grouped_by_jid.get(jid, [])
+
+                    # =====================================================================
+                    # A NOVA CONDIÇÃO ESTÁ AQUI:
+                    # Só adiciona a conversa ao estado se ela tiver mensagens.
+                    # =====================================================================
+                    if contact_messages:
+                        contact_messages.sort(key=lambda x: x["timestamp"])  # Ordena só se houver mensagens
+                        name = contact.get("pushName") or contact.get("name") or jid.split('@')[0]
+
+                        new_conversation_store[jid] = {
+                            "name": name,
+                            "avatar_url": contact.get("profilePicUrl") or "",
+                            "messages": contact_messages,
+                            "suggestions": [],
+                            "dados_cliente": {},
+                            "unread": False,
+                            "unreadCount": 0,
+                            "stage_id": "stage_prospecting"
+                        }
+                        conversations_added += 1  # Incrementa o contador
+                    # =====================================================================
 
                 global CONVERSATION_STATE_STORE
                 CONVERSATION_STATE_STORE = copy.deepcopy(new_conversation_store)
 
                 print_success("\n" + "=" * 70)
                 print_success("SINCRONIZAÇÃO PARA FRONTEND CONCLUÍDA COM SUCESSO!")
-                print_info(f"📊 Resumo: {len(new_conversation_store)} conversas montadas.")
+                # Atualiza o log para mostrar o número real de conversas montadas
+                print_info(f"📊 Resumo: {conversations_added} conversas com mensagens montadas.")
                 print_info("=" * 70 + "\n")
 
         except Exception as e:

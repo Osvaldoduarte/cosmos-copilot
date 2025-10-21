@@ -208,21 +208,32 @@ def get_intent_from_query(llm: ChatGoogleGenerativeAI, query: str, prompt_templa
         return "comentario_geral"  # Ou "pergunta_conversacional"
 
 
-def decide_next_stage(llm: ChatGoogleGenerativeAI,conversation_history: str,current_stage_id: str,possible_routes: str,query: str) -> str:
+def decide_next_stage(llm: ChatGoogleGenerativeAI, conversation_history: str, current_stage_id: str,
+                      possible_routes: str, query: str) -> str:
     """
     Função dedicada a usar o LLM para determinar o próximo estágio de vendas.
+    Inclui prints de depuração detalhados.
     Retorna o ID do próximo estágio ou o estágio atual em caso de falha.
     """
-    print(f"🔄 CÉREBRO 3: Iniciando tomada de decisão de estágio...")
+    print(f"🔄 CÉREBRO 3: Iniciando tomada de decisão...")
     try:
-        # 1. Monta o prompt específico para a decisão.
+        # --- DEBUG: MOSTRAR AS ENTRADAS ---
+        print("[DEBUG C3] Entradas recebidas:")
+        print(f"  - Estágio Atual: {current_stage_id}")
+        print(f"  - Query: {query[:100]}...")  # Mostra os primeiros 100 chars
+        print(f"  - Rotas Possíveis: {possible_routes}")
+        print(f"  - Histórico (Contexto): {conversation_history[:200]}...")  # Primeiros 200 chars
+
+        # 1. Monta o prompt
         prompt = STAGE_DECISION_PROMPT
 
-        # 2. Constrói a cadeia, forçando a saída para o StageTransitionDecision.
-        # Usa o with_structured_output com o modelo de decisão
+        # 2. Constrói a cadeia
         chain = prompt | llm.with_structured_output(StageTransitionDecision)
 
-        # 3. Invoca a cadeia.
+        # --- DEBUG: ANTES DA CHAMADA À IA ---
+        print("[DEBUG C3] Preparado para invocar a cadeia LLM...")
+
+        # 3. Invoca a cadeia (onde provavelmente está travando)
         decision = chain.invoke({
             "conversation_history": conversation_history,
             "current_stage_id": current_stage_id,
@@ -230,13 +241,21 @@ def decide_next_stage(llm: ChatGoogleGenerativeAI,conversation_history: str,curr
             "query": query
         })
 
-        print(f"✅ CÉREBRO 3: Decisão tomada. Próximo ID: {decision.proximo_stage_id}. Justificativa: {decision.justificativa[:50]}...")
-        # Retorna o ID do próximo estágio.
+        # --- DEBUG: DEPOIS DA CHAMADA À IA ---
+        print("[DEBUG C3] Cadeia LLM invocada com sucesso!")
+        print(f"  - Próximo Estágio Decidido: {decision.proximo_stage_id}")
+        print(f"  - Justificativa: {decision.justificativa}")
+
+        print(f"✅ CÉREBRO 3: Decisão tomada. Próximo ID: {decision.proximo_stage_id}.")
         return decision.proximo_stage_id
 
     except Exception as e:
-        print(f"❌ ERRO ao decidir o próximo estágio. Retornando estágio atual: {current_stage_id}. ERRO: {e}")
-        # Em caso de falha, retorna o estágio atual para segurança.
+        # --- DEBUG: SE OCORRER UM ERRO ---
+        print_error(f"[DEBUG C3] ERRO durante a decisão de estágio: {e}")
+        import traceback
+        traceback.print_exc()  # Imprime o traceback completo do erro
+
+        print(f"❌ ERRO ao decidir o próximo estágio. Retornando estágio atual: {current_stage_id}.")
         return current_stage_id
 
 def get_relevant_video_suggestion(ensemble_retriever: EnsembleRetriever, query: str) -> Optional[Dict[str, str]]:
