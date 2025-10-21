@@ -24,10 +24,114 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000';
 
   // --- LÓGICA DE RESPONSIVIDADE ---
   // Um estado simples para saber se estamos em uma tela "mobile"
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  const handleLogout = () => {
+    localStorage.removeItem('authToken');
+    setToken(null);
+    setConversations({}); // Limpa os dados
+    setActiveConversationId(null);
+  };
+
+  const fetchWithAuth = useCallback(async (url, options = {}) => {
+    const token = localStorage.getItem('authToken');
+
+    // Prepara os cabeçalhos, adicionando o de Autorização
+    const headers = {
+      ...options.headers,
+      'Authorization': `Bearer ${token}`
+    };
+
+    const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
+    const response = await fetch(fullUrl, { ...options, headers });
+
+    // Se o token for inválido ou expirar, o backend retornará 401.
+    // Nesse caso, fazemos o logout automático do usuário.
+    if (response.status === 401) {
+      handleLogout();
+      // Lança um erro para parar a execução da função que chamou o fetch.
+      throw new Error('Sessão expirada. Por favor, faça login novamente.');
+    }
+
+    return response;
+  }, []);
+
+const fetchConversations = useCallback(async () => {
+    try {
+      const response = await fetchWithAuth('/conversations');
+      if (!response.ok) { throw new Error('Falha ao buscar conversas.'); }
+      const data = await response.json();
+
+      if (data.status === 'success' && data.conversations) {
+        const newConversations = {};
+        const newStagesByConvo = {};
+
+        data.conversations.forEach(convo => {
+          const messagesArray = convo.messages || [];
+
+          // =====================================================================
+          // VOLTAMOS A USAR O OBJETO lastMessage consistentemente
+          // =====================================================================
+          const lastMessage = messagesArray.length > 0
+              ? messagesArray[messagesArray.length - 1]
+              : { content: 'Nova Conversa', sender: 'system', timestamp: 0 };
+          // Usamos o timestamp da última mensagem ou o lastUpdated do backend, o que for mais recente
+          const lastTimestampMs = Math.max(
+              convo.lastUpdated || 0,
+              lastMessage.timestamp * 1000 || 0
+          );
+          // =====================================================================
+
+          // Mapeamento de mensagens (continua igual)
+          const mappedMessages = messagesArray.map(msg => ({
+              sender: msg.sender,
+              text: msg.content,
+              timestamp: msg.timestamp,
+              message_id: msg.message_id || `${msg.sender}-${msg.timestamp}`
+          }));
+
+          // Mapeamento de Sugestões (agora usa lastMessage corretamente)
+          // (Removido pois não está sendo usado para atualizar o estado)
+          /* const currentSuggestions = convo.suggestions && convo.suggestions.length > 0 ? convo.suggestions[0] : {};
+          const mappedSuggestions = [{
+              id: `${convo.id}-${lastMessage.timestamp}`, // Usa lastMessage
+              query: lastMessage.content, // Usa lastMessage
+              // ... resto do mapeamento ...
+          }].filter(s => s.immediate_answer || (s.follow_up_options && s.follow_up_options.length > 0) || s.video);
+          */
+
+          // Lógica de Unread (continua igual)
+          const isUnread = convo.unread || false;
+
+          // Atualização do Objeto de Conversa (agora usa lastMessage corretamente)
+          console.log(`[fetchConversations] Dados recebidos para ${convo.id}: unreadCount = ${convo.unreadCount}, unread = ${convo.unread}`);
+          newConversations[convo.id] = {
+            id: convo.id,
+            name: convo.name || convo.id.split('@')[0],
+            avatarUrl: convo.avatar_url,
+            lastMessage: lastMessage.content, // Usa lastMessage
+            lastUpdated: lastTimestampMs,     // Usa o timestamp calculado
+            messages: mappedMessages,
+            unread: isUnread,
+            unreadCount: convo.unreadCount || 0,
+            clientData: convo.dados_cliente || {},
+          };
+          newStagesByConvo[convo.id] = convo.stage_id;
+
+          // NOTA: A lógica que atualizava suggestionsByConvo foi removida daqui,
+          // pois ela estava causando o "pisca-some" e não era necessária no polling.
+          // O estado de sugestões é gerenciado pelas funções handleSuggestionRequest.
+        });
+
+        setConversations(newConversations);
+        setStagesByConvo(newStagesByConvo);
+      }
+    } catch (err) { console.error("Erro no polling:", err); }
+  }, [fetchWithAuth]); // Dependência correta
 
   useEffect(() => {
     const savedToken = localStorage.getItem('authToken');
@@ -44,7 +148,6 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Efeito para lidar com a tecla 'Escape'
   useEffect(() => {
     const handleKeyDown = (event) => {
       // Verifica se a tecla pressionada foi 'Escape'
@@ -68,7 +171,7 @@ function App() {
     setIsLoginLoading(true);
     setLoginError('');
     try {
-      const response = await fetch('http://127.0.0.1:8000/token', {
+      const response = await fetchWithAuth('http://127.0.0.1:8000/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -92,14 +195,6 @@ function App() {
     } finally {
       setIsLoginLoading(false);
     }
-  };
-
-  // --- NOVA FUNÇÃO DE LOGOUT ---
-  const handleLogout = () => {
-    localStorage.removeItem('authToken');
-    setToken(null);
-    setConversations({}); // Limpa os dados
-    setActiveConversationId(null);
   };
 
 
@@ -250,7 +345,7 @@ const handleToggleCopilot = () => {
     setError('');
     const currentStage = stagesByConvo[activeConversationId] || null;
     try {
-        const response = await fetch('http://127.0.0.1:8000/generate_response', {
+        const response = await fetchWithAuth('http://127.0.0.1:8000/generate_response', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ query: privateQuery, conversation_id: activeConversationId, current_stage_id: currentStage, is_private_query: true }),
@@ -292,16 +387,24 @@ const handleToggleCopilot = () => {
   };
 
   // Função handleConversationSelect (final)
-  const handleConversationSelect = (convoId) => {
-    setActiveConversationId(String(convoId));
-    setConversations(prev => {
-      if (prev[convoId] && prev[convoId].unread) {
-        const updatedConvo = { ...prev[convoId], unread: false };
-        return { ...prev, [convoId]: updatedConvo };
-      }
-      return prev;
-    });
-  };
+const handleConversationSelect = useCallback(async (convoId) => {
+    const stringConvoId = String(convoId);
+    console.log(`[handleConversationSelect] Selecionada conversa: ${stringConvoId}`);
+    setActiveConversationId(stringConvoId);
+
+    // APENAS NOTIFICA O BACKEND. A UI será atualizada pelo próximo polling.
+    try {
+      console.log(`[handleConversationSelect] Notificando backend /mark-read...`);
+      await fetchWithAuth(`http://127.0.0.1:8000/conversations/${encodeURIComponent(stringConvoId)}/mark-read`, {
+          method: 'POST',
+      });
+      console.log(`[Frontend] Notificado backend sobre leitura da conversa ${stringConvoId}.`);
+      // FORÇAR ATUALIZAÇÃO (Opcional, se o polling demorar muito):
+      // fetchConversations();
+    } catch (error) {
+      console.error(`[Frontend] Erro ao notificar backend sobre leitura da conversa ${stringConvoId}:`, error);
+    }
+  }, [fetchWithAuth]); // Removido 'conversations' da dependência
 
   const handleCustomerMessageSubmit = (query) => {
     // Para testar o fluxo completo, as mensagens do cliente devem vir do webhook real.
@@ -326,105 +429,30 @@ const handleMessageDrop = (droppedText) => {
   // solicitação de sugestão.
   console.log(`Mensagem arrastada recebida: "${droppedText}". Solicitando sugestão...`);
   handleSuggestionRequest(droppedText);
-};
-
-const fetchWithAuth = useCallback(async (url, options = {}) => {
-    const token = localStorage.getItem('authToken');
-
-    // Prepara os cabeçalhos, adicionando o de Autorização
-    const headers = {
-      ...options.headers,
-      'Authorization': `Bearer ${token}`
-    };
-
-    const response = await fetch(url, { ...options, headers });
-
-    // Se o token for inválido ou expirar, o backend retornará 401.
-    // Nesse caso, fazemos o logout automático do usuário.
-    if (response.status === 401) {
-      handleLogout();
-      // Lança um erro para parar a execução da função que chamou o fetch.
-      throw new Error('Sessão expirada. Por favor, faça login novamente.');
-    }
-
-    return response;
-  }, []); // useCallback com array vazio garante que a função não seja recriada desnecessariamente
-
-  // --- FUNÇÃO DE POLLING CORRIGIDA (CRÍTICA) ---
-  const fetchConversations = useCallback(async () => {
-    try {
-      const response = await fetchWithAuth('http://127.0.0.1:8000/conversations');
-      if (!response.ok) { throw new Error('Falha ao buscar conversas do backend.'); }
-      const data = await response.json();
-
-      if (data.status === 'success' && data.conversations) {
-        const newConversations = {};
-        const newSuggestionsByConvo = {};
-        const newStagesByConvo = {};
-        const existingConversations = conversations;
-
-        data.conversations.forEach(convo => {
-
-          const messagesArray = convo.messages || [];
-          const lastMessage = messagesArray.length > 0 ? messagesArray[messagesArray.length - 1] : { content: 'Nova Conversa', sender: 'system', timestamp: 0 };
-
-          // CRÍTICO: Mapeamento de 'content' (backend) para 'text' (ChatPanel)
-          const mappedMessages = messagesArray.map(msg => ({
-              sender: msg.sender,
-              text: msg.content,  // <--- CORREÇÃO FUNDAMENTAL
-              timestamp: msg.timestamp
-          }));
-
-          // --- Mapeamento de Sugestões (Simplificado para o formato final) ---
-          const currentSuggestions = convo.suggestions && convo.suggestions.length > 0 ? convo.suggestions[0] : {};
-
-          const mappedSuggestions = [{
-              id: `${convo.id}-${lastMessage.timestamp}`,
-              query: lastMessage.content,
-              private_query: null,
-              is_private: false,
-              immediate_answer: currentSuggestions.immediate_answer || null,
-              follow_up_options: currentSuggestions.follow_up_options || [],
-              video: currentSuggestions.video || null,
-          }].filter(s => s.immediate_answer || (s.follow_up_options && s.follow_up_options.length > 0) || s.video);
-
-          // --- ATUALIZAÇÃO DO OBJETO DE CONVERSA ---
-          const isUnread = existingConversations[convo.id]
-            ? (lastMessage.sender === 'cliente' && convo.id !== activeConversationId)
-            : true;
-
-          newConversations[convo.id] = {
-            id: convo.id,
-            name: convo.name || convo.id.split('@')[0],
-            avatarUrl: convo.avatar_url,
-            lastMessage: lastMessage.content,
-            lastUpdated: lastMessage.timestamp * 1000,
-            messages: mappedMessages, // <--- ARRAY DE MENSAGENS CORRIGIDO
-            unread: isUnread,
-          };
-
-          newSuggestionsByConvo[convo.id] = mappedSuggestions;
-          newStagesByConvo[convo.id] = convo.stage_id;
-
-        });
-
-        // Atualiza o estado:
-        setConversations(newConversations);
-        setStagesByConvo(newStagesByConvo);
-
-      }
-    } catch (err) {
-      console.error("Erro no polling de conversas:", err);
-    }
-  }, [activeConversationId, conversations]);
-
+}; // useCallback com array vazio garante que a função não seja recriada desnecessariamente
 
   // --- EFEITO PARA INICIAR O POLLING ---
-  useEffect(() => {
-    fetchConversations();
-    const intervalId = setInterval(fetchConversations, 3000);
-    return () => clearInterval(intervalId);
-  }, [fetchConversations]);
+useEffect(() => {
+    let intervalId = null;
+
+    if (token) {
+      console.log("[Polling] Token válido. Iniciando busca inicial e intervalo.");
+      fetchConversations();
+
+      intervalId = setInterval(fetchConversations, 5000);
+      console.log(`[Polling] Intervalo iniciado (ID: ${intervalId}).`);
+    } else {
+      console.log("[Polling] Sem token. Polling não iniciado.");
+    }
+
+    // FUNÇÃO DE LIMPEZA (executa no logout ou desmontagem)
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        console.log(`[Polling] Intervalo parado (ID: ${intervalId}).`);
+      }
+    };
+  }, [token]);
 
   // ======================================================
   // O "PORTEIRO": LÓGICA DE RENDERIZAÇÃO CONDICIONAL

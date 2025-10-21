@@ -1,6 +1,6 @@
 // Em frontend/src/components/ConversationList.js
-import React, { useState } from 'react';
-
+import React, { useState, useMemo } from 'react';
+import Fuse from 'fuse.js';
 import { DEFAULT_AVATAR_URL } from '../utils/formatDisplay';
 
 // Ícone simples de pesquisa
@@ -14,9 +14,36 @@ const LogoutIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill="
 function ConversationList({ conversations, activeConversationId, onConversationSelect, onNewConversationClick, onLogout }) {
   const [searchTerm, setSearchTerm] = useState('');
 
-  const filteredConversations = conversations.filter(convo =>
-    convo.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+const fuseOptions = {
+    keys: [
+      { name: 'name', weight: 0.7 },
+      { name: 'messages.text', weight: 0.3 }
+    ],
+    includeScore: false,
+    shouldSort: true,
+    threshold: 0.4,
+    minMatchCharLength: 2,
+    // --- NOVAS OPÇÕES PARA MELHORAR BUSCA DE FRASES ---
+    ignoreLocation: true, // Permite que a frase seja encontrada em qualquer lugar do texto
+    //distance: 100,      // (Opcional) Define o quão longe as palavras podem estar (pode precisar ajustar)
+    //useExtendedSearch: false, // Desativar pode ajudar em alguns casos de busca de substring
+    // --------------------------------------------------
+    findAllMatches: false,
+  };
+
+  // Usamos useMemo para otimizar: a instância do Fuse só é recriada se a lista de conversas mudar.
+  const fuse = useMemo(() => new Fuse(conversations, fuseOptions), [conversations]);
+
+  // A filtragem agora usa o fuse.search()
+  const filteredConversations = useMemo(() => {
+    if (!searchTerm.trim() || searchTerm.trim().length < fuseOptions.minMatchCharLength) {
+      // Se a busca estiver vazia ou muito curta, retorna a lista original
+      return conversations;
+    } else {
+      // Executa a busca fuzzy e retorna os resultados (o Fuse retorna { item: convo })
+      return fuse.search(searchTerm.trim()).map(result => result.item);
+    }
+  }, [searchTerm, conversations, fuse]); // Recalcula apenas se o termo ou as conversas mudarem
 
   return (
   <div className="conversation-list-panel">
@@ -40,23 +67,42 @@ function ConversationList({ conversations, activeConversationId, onConversationS
     </div>
 
     {/* Lista de conversas filtradas */}
-    <div className="conversation-list">
-      {filteredConversations.map(convo => (
-        <div
-          key={convo.id}
-          className={`conversation-item ${convo.id === activeConversationId ? 'active' : ''}`}
-          onClick={() => onConversationSelect(convo.id)}
-        >
-<img src={convo.avatarUrl || DEFAULT_AVATAR_URL} alt={convo.name} className="avatar" />          <div className="conversation-details">
-            <div className="conversation-header">
-              <span className="conversation-name">{convo.name}</span>
+<div className="conversation-list">
+        {filteredConversations.map(convo => {
+          // A lógica de encontrar a mensagem relevante para exibição continua a mesma
+          const displayMessage = searchTerm.trim() ?
+            (() => {
+              const term = searchTerm.toLowerCase();
+              const firstMatch = Array.isArray(convo.messages)
+                ? convo.messages.find(msg => msg.text && msg.text.toLowerCase().includes(term)) // Ainda usamos 'includes' aqui para highlight simples
+                : null;
+              return firstMatch ? firstMatch.text : convo.lastMessage;
+            })()
+          : convo.lastMessage;
+
+          return (
+            <div
+              key={convo.id}
+              className={`conversation-item ${convo.id === activeConversationId ? 'active' : ''}`}
+              onClick={() => onConversationSelect(convo.id)}
+            >
+              <img src={convo.avatarUrl || DEFAULT_AVATAR_URL} alt={convo.name} className="avatar" />
+              <div className="conversation-details">
+                <div className="conversation-header">
+                  <span className="conversation-name">{convo.name}</span>
+                </div>
+                {/* Exibe a mensagem relevante encontrada ou a última */}
+                <p className="last-message">{displayMessage}</p>
+              </div>
+              {convo.unread && (
+                <div className="unread-dot">
+                  {convo.unreadCount > 0 ? convo.unreadCount : ''}
+                </div>
+              )}
             </div>
-            <p className="last-message">{convo.lastMessage}</p>
-          </div>
-          {convo.unread && <div className="unread-dot"></div>}
-        </div>
-      ))}
-    </div>
+          );
+        })}
+      </div>
     <div className="conversation-list-footer">
         <button className="logout-btn" onClick={onLogout}>
           <LogoutIcon />

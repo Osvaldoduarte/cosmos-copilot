@@ -939,3 +939,55 @@ body {
     background: linear-gradient(160deg, #0d1117, #1a2c3a);
   }
 }
+.unread-dot {
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+
+  /* Cria um círculo perfeito de tamanho fixo */
+  width: 20px;
+  height: 20px;
+  /* Removemos o padding para simplificar */
+
+  background-color: var(--primary-blue);
+  color: white; /* Garante a cor do número */
+  border-radius: 50%; /* Círculo perfeito */
+
+  /* Centraliza o número usando flexbox */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* Define o tamanho e peso da fonte */
+  font-size: 0.75rem; /* ~12px */
+  font-weight: bold;
+  line-height: 1; /* Garante que a altura da linha não empurre o número */
+
+  box-shadow: 0 0 5px var(--primary-blue);
+}
+
+.suggestion-card-private .private-header {
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-color);
+  /* Garante que a blockquote se comporte bem com o botão */
+  display: flex;
+  align-items: flex-start; /* Alinha no topo */
+}
+
+/* Ajusta a blockquote para servir como título */
+.suggestion-card-private .private-query-title {
+  margin: 0; /* Remove margens padrão da blockquote */
+  padding: 0; /* Remove paddings padrão */
+  border-left: none; /* Remove a borda azul */
+  background-color: transparent; /* Remove o fundo */
+  color: var(--text-secondary);
+  font-style: italic;
+  font-size: 1rem;
+  flex-grow: 1; /* Faz ocupar o espaço */
+}
+
+.suggestion-card-private p {
+  padding-left: 0.5rem; /* Um pequeno recuo para a resposta */
+}

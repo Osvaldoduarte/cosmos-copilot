@@ -64,6 +64,12 @@ const handleScroll = useCallback(() => {
     setShowScrollButton(isScrolledUp);
   }, []);
 
+ const handleDragStart = (e, text) => {
+  // Define o texto que será "carregado" durante o arraste
+  e.dataTransfer.setData("text/plain", text);
+  console.log("[DEBUG] handleDragStart (Desktop) acionado com texto:", text); // Log de debug
+};
+
   // ===================================================================
   // PASSO 4 DA LÓGICA: EFEITOS DE SCROLL AUTOMÁTICO
   // ===================================================================
@@ -173,6 +179,8 @@ return (
 <div
                 className={`message-bubble ${msg.sender} ${isDraggable ? 'draggable-message' : ''}`}
                 // Apenas os eventos de início e fim do toque são necessários aqui
+                draggable={isDraggable}
+            onDragStart={isDraggable ? (e) => handleDragStart(e, msg.text) : null}
                 onTouchStart={isDraggable ? (e) => handleTouchStart(e, msg.text) : null}
                 onTouchEnd={isDraggable ? handleTouchEnd : null}
                 onContextMenu={(e) => e.preventDefault()}

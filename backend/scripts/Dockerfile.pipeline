@@ -1,0 +1,12 @@
+FROM python:3.9-slim
+WORKDIR /app
+
+# Copia o requirements do backend (pasta pai)
+COPY ../requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copia todo o código do backend (incluindo scripts, core, etc.)
+COPY ../ .
+
+# Comando padrão para executar o pipeline
+CMD ["python", "scripts/gerenciar_pipeline.py"]

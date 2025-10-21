@@ -87,6 +87,11 @@ function CopilotPanel({ isLoading, error, suggestions, onUseSuggestion, onDelete
     const queryText = e.dataTransfer.getData("text/plain");
     if (queryText) onMessageDrop(queryText);
   };
+  const handleDragStart = (e, text) => {
+  // Define o texto que será "carregado" durante o arraste
+  e.dataTransfer.setData("text/plain", text);
+  console.log("[DEBUG] handleDragStart (Desktop) acionado com texto:", text); // Log de debug
+};
 
   const isCompact = suggestions.length > 0 || isLoading;
 
@@ -115,7 +120,7 @@ function CopilotPanel({ isLoading, error, suggestions, onUseSuggestion, onDelete
             {suggestions.map(item => {
               // AQUI ESTÁ A LÓGICA DE DECISÃO
               if (item.is_private) {
-                // SE FOR UMA CONSULTA PRIVADA, RENDERIZA O CARD SIMPLES
+                // SE FOR UMA CONSULTA PRIVADA, RENDERIZA O CARD UNIFICADO
                 return (
                   <div key={item.id} className="suggestion-group">
                     {/* O card agora contém tanto a pergunta quanto a resposta */}
@@ -123,7 +128,8 @@ function CopilotPanel({ isLoading, error, suggestions, onUseSuggestion, onDelete
 
                       {/* A pergunta agora é o cabeçalho do card */}
                       <div className="card-header private-header">
-                        <h3>Sua pergunta: "{item.private_query}"</h3>
+                        {/* Usamos a blockquote aqui dentro */}
+                        <blockquote className="suggestion-query private-query-title">Sua pergunta: "{item.private_query}"</blockquote>
                         <button className="suggestion-delete-btn" onClick={() => onDeleteSuggestion(item.id)}>
                           <CloseIcon />
                         </button>
