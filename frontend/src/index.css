@@ -773,3 +773,169 @@ body {
 .message-context-menu button:hover {
   background-color: var(--primary-blue);
 }
+
+/* Em index.css, na seção do PAINEL DE CONVERSAS */
+
+.conversation-list-footer {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0; /* Impede que o rodapé encolha */
+}
+
+.logout-btn {
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
+  text-align: left;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.logout-btn:hover {
+  background-color: var(--surface-dark-2);
+  color: var(--text-light);
+}
+/* ===================================================================
+   12. ESTILOS PARA A PÁGINA DE LOGIN
+   =================================================================== */
+
+.login-page {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  background-color: var(--surface-dark-1);
+}
+
+/* Coluna da Esquerda (Branding) */
+.login-branding {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #0d1117, #1a2c3a);
+  color: var(--text-light);
+  padding: 2rem;
+  text-align: center;
+}
+
+.branding-content svg {
+  color: var(--primary-blue);
+  margin-bottom: 1rem;
+}
+
+.branding-content h1 {
+  font-size: 2.5rem;
+  margin: 0;
+  font-weight: 700;
+}
+
+.branding-content p {
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+}
+
+/* Coluna da Direita (Formulário) */
+.login-form-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.login-form {
+  width: 100%;
+  max-width: 380px;
+}
+
+.login-form h2 {
+  font-size: 2rem;
+  font-weight: 600;
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+
+.login-form p {
+  color: var(--text-secondary);
+  margin-bottom: 2.5rem;
+}
+
+.input-group {
+  margin-bottom: 1.5rem;
+}
+
+.input-group label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.login-form input {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background-color: var(--surface-dark-2);
+  color: var(--text-light);
+  font-size: 1rem;
+  transition: border-color 0.2s;
+}
+
+.login-form input:focus {
+  outline: none;
+  border-color: var(--primary-blue);
+  box-shadow: 0 0 0 3px rgba(47, 129, 247, 0.2);
+}
+
+.login-button {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  border-radius: 8px;
+  border: none;
+  background-color: var(--primary-blue);
+  color: white;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  margin-top: 1rem;
+}
+
+.login-button:hover:not(:disabled) {
+  background-color: #1f6eeb;
+}
+
+.login-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.login-error-message {
+  text-align: center;
+  padding: 0.75rem;
+  background-color: rgba(248, 81, 73, 0.1);
+  border: 1px solid var(--error-red);
+  color: var(--error-red);
+  border-radius: 8px;
+  margin-top: 1.5rem;
+  font-size: 0.9rem;
+}
+
+/* Responsividade para a tela de login em telas pequenas */
+@media (max-width: 768px) {
+  .login-branding {
+    display: none; /* Esconde a coluna da esquerda */
+  }
+  .login-form-wrapper {
+    background: linear-gradient(160deg, #0d1117, #1a2c3a);
+  }
+}

@@ -81,7 +81,7 @@ class ClientData(BaseModel):
 
 # --- TEMPLATE DO NOVO SUPER PROMPT ---
 SUPER_PROMPT_TEMPLATE = """
-Você é o "Cosmos Copilot", um assistente de vendas especialista em IA para o sistema CosmosERP.
+Você é o "VENAI", um assistente de vendas especialista em IA para o sistema CosmosERP.
 
 Sua missão é analisar o contexto completo de uma interação com o cliente e gerar uma resposta estruturada em JSON.
 

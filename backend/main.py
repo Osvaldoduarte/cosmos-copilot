@@ -1,12 +1,16 @@
 import os, time, httpx, uuid, json, uvicorn, asyncio, copy
 from pathlib import Path
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
+from datetime import datetime, timedelta, timezone
 
-from core import cerebro_ia
+from jose import JWTError, jwt
+
+from core import security, database, cerebro_ia
 
 class Colors:
     RED = '\033[91m'
@@ -69,7 +73,133 @@ EVO_INSTANCE = os.getenv("EVOLUTION_INSTANCE_NAME")
 
 EVO_TOKEN = os.getenv("EVOLUTION_API_KEY")
 
+# ===================================================================
+#           INÍCIO DO BLOCO DE CÓDIGO DE AUTENTICAÇÃO
+# ===================================================================
+
+# --- Configuração de Segurança ---
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 8  # Token expira em 8 horas
+
+# Esquema OAuth2 que aponta para o nosso novo endpoint /token
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
 app = FastAPI()
+# --- Modelos de Dados (Pydantic) ---
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    username: Optional[str] = None
+
+
+class User(BaseModel):
+    username: str
+    full_name: Optional[str] = None
+    disabled: Optional[bool] = None
+    tenant_id: str
+
+
+# --- Funções Auxiliares de Autenticação ---
+def authenticate_user(username: str, password: str) -> Optional[User]:
+    """
+    Busca o usuário e verifica a senha.
+    Retorna o objeto User se for válido, senão None.
+    """
+    user_data = database.get_user(username)
+    if not user_data:
+        return None
+    if not security.verify_password(password, user_data["hashed_password"]):
+        return None
+    return User(**user_data)
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """
+    Cria um novo token de acesso (JWT).
+    """
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+# --- Endpoint de Login ---
+@app.post("/token", response_model=Token)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    """
+    Recebe username e password de um formulário e retorna um JWT.
+    """
+    user = authenticate_user(form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Nome de usuário ou senha incorretos",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+
+    # Armazenamos o username (sub) e o tenant_id no token
+    access_token = create_access_token(
+        data={"sub": user.username, "tenant_id": user.tenant_id},
+        expires_delta=access_token_expires
+    )
+
+    return {"access_token": access_token, "token_type": "bearer"}
+
+async def get_current_active_user(token: str = Depends(oauth2_scheme)) -> User:
+    """
+    Decodifica o token JWT, valida o usuário e retorna seus dados.
+    Esta é a nossa dependência de segurança ("o porteiro").
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Não foi possível validar as credenciais",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        # Tenta decodificar o token usando nossa chave secreta
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = TokenData(username=username)
+    except JWTError:
+        raise credentials_exception
+
+    # Busca o usuário no nosso "banco de dados"
+    user_data = database.get_user(username=token_data.username)
+    if user_data is None:
+        raise credentials_exception
+
+    user = User(**user_data)
+    # Verifica se o usuário está desativado
+    if user.disabled:
+        raise HTTPException(status_code=400, detail="Usuário inativo")
+
+    # Se tudo estiver OK, retorna os dados do usuário
+    return user
+
+async def get_current_user_for_websocket(token: Optional[str] = None) -> User:
+    """Dependência para autenticar usuários em conexões WebSocket via token."""
+    if token is None:
+        raise WebSocketDisconnect(code=status.WS_1008_POLICY_VIOLATION)
+    return await get_current_active_user(token)
+
+
+# ===================================================================
+#           FIM DO CÓDIGO DO "PORTEIRO"
+# ===================================================================
+
 # --- GATILHO DE INICIALIZAÇÃO ---
 
 @app.on_event("startup")
@@ -127,7 +257,7 @@ def find_existing_conversation_jid(jid: str) -> str | None:
     return None
 
 @app.get("/debug/{jid:path}")
-async def debug_conversation_state(jid: str):
+async def debug_conversation_state(jid: str, current_user: User = Depends(get_current_active_user)):
     """
     Endpoint de depuração para inspecionar o estado de uma única conversa na memória.
     Use o JID completo, ex: 5541999999999@s.whatsapp.net
@@ -142,7 +272,7 @@ async def debug_conversation_state(jid: str):
         raise HTTPException(status_code=404, detail=f"JID {jid} não encontrado no estado da conversa.")
 
 @app.get("/contacts/info/{number}")
-async def get_contact_info(number: str):
+async def get_contact_info(number: str, current_user: User = Depends(get_current_active_user)):
     """Busca nome e foto de um número na Evolution API para preview."""
     jid = f"{number}@s.whatsapp.net"
     try:
@@ -223,7 +353,7 @@ async def send_whatsapp_message(recipient_jid: str, message_text: str) -> bool:
 
 @app.get("/")
 def read_root():
-    return {"status": "Cosmos Copilot Backend is running!"}
+    return {"status": "VENAI Backend is running!"}
 
 
 print("INFO: Carregando modelos e playbook na inicialização do servidor...")
@@ -288,13 +418,18 @@ async def get_contact_info(number: str):
 
 
 @app.websocket("/ws/{conversation_id}")
-async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
+async def websocket_endpoint(websocket: WebSocket, conversation_id: str, token: str):
+    # Autentica o usuário usando o token passado na URL
+    user = await get_current_user_for_websocket(token)
+    print(f"INFO: Usuário '{user.username}' autenticado para WebSocket na conversa {conversation_id}")
+
     await manager.connect(websocket, conversation_id)
     try:
         while True:
-            data = await websocket.receive_text()
+            await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(conversation_id)
+
 # Carrega todos os modelos e o playbook.
 
 llm, ensemble_retriever, embeddings_model, playbook = cerebro_ia.load_models()
@@ -405,7 +540,7 @@ async def process_and_broadcast_message(conversation_id: str, message_obj: Dict[
 
 
 @app.post("/send_seller_message")
-async def send_seller_message_route(request: MessageSendRequest, background_tasks: BackgroundTasks):
+async def send_seller_message_route(request: MessageSendRequest, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_active_user)):
     global CONVERSATION_STATE_STORE
 
     # 1. Envia mensagem via API Evolution
@@ -442,13 +577,16 @@ async def send_seller_message_route(request: MessageSendRequest, background_task
 
 
 @app.get("/conversations")
-async def get_all_conversations():
+async def get_all_conversations(current_user: User = Depends(get_current_active_user)):
+    """
+    Endpoint PROTEGIDO para buscar todas as conversas.
+    Só pode ser acessado com um token JWT válido.
+    """
+    print(f"INFO: Usuário '{current_user.username}' do tenant '{current_user.tenant_id}' acessou as conversas.")
+
+    # O resto da sua lógica continua igual, mas agora dentro de um endpoint seguro.
     formatted_conversations = []
-    # Adquirimos a trava antes de LER o estado.
-    # Isso garante que não vamos ler um estado pela metade enquanto a sincronização está rodando.
     async with STATE_LOCK:
-        # Usamos copy.deepcopy para enviar uma cópia, não a referência original,
-        # para o frontend. Mais seguro.
         store_copy = copy.deepcopy(CONVERSATION_STATE_STORE)
 
     for cid, data in store_copy.items():
@@ -463,7 +601,7 @@ async def get_all_conversations():
 
 
 @app.post("/generate_response")
-async def generate_response(request: SuggestionRequest):
+async def generate_response(request: SuggestionRequest, current_user: User = Depends(get_current_active_user)):
     """Gera sugestões de venda usando a memória estruturada e o RAG dinâmico."""
     try:
         # 1. Pega os dados completos da conversa do nosso estado em memória
@@ -670,7 +808,7 @@ async def handle_evolution_webhook(request: Request, background_tasks: Backgroun
     return {"status": "event_processed"}
 
 @app.post("/conversations/start_new")
-async def start_new_conversation(request: NewConversationRequest, background_tasks: BackgroundTasks):
+async def start_new_conversation(request: NewConversationRequest, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_active_user)):
     """
     Inicia uma nova conversa enviando uma mensagem inicial para um novo contato.
     """

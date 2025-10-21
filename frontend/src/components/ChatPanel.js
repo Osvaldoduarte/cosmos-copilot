@@ -24,7 +24,7 @@ const WelcomePanel = () => (
     <div className="welcome-content">
       {/* Você pode adicionar um ícone ou logo aqui se desejar */}
       <h2>Seja Bem-vindo!</h2>
-      <p>Selecione uma conversa na lista à esquerda para começar a usar o Cosmos Copilot.</p>
+      <p>Selecione uma conversa na lista à esquerda para começar a usar o VENAI.</p>
     </div>
   </div>
 );

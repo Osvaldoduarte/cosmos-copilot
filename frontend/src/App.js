@@ -2,15 +2,19 @@ import React, { useState, useEffect, useCallback } from 'react';
 import ConversationList from './components/ConversationList';
 import ChatPanel from './components/ChatPanel';
 import CopilotPanel from './components/CopilotPanel';
-import NewConversationModal from './components/NewConversationModal'; // 1. IMPORTE o novo componente
+import NewConversationModal from './components/NewConversationModal';
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import Login from './components/Login';
 
 import Drawer from 'react-modern-drawer';
 import 'react-modern-drawer/dist/index.css';
 
 function App() {
   // --- ESTADOS INICIAIS ---
-  // Inicia com estado vazio (conversas reais) ou use initialMockConversations para debug
+  const [token, setToken] = useState(localStorage.getItem('authToken')); // Tenta pegar o token salvo
+  const [loginError, setLoginError] = useState('');
+  const [isLoginLoading, setIsLoginLoading] = useState(false);  // Inicia com estado vazio (conversas reais) ou use initialMockConversations para debug
+
   const [conversations, setConversations] = useState({});
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -24,6 +28,13 @@ function App() {
   // --- LÓGICA DE RESPONSIVIDADE ---
   // Um estado simples para saber se estamos em uma tela "mobile"
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  useEffect(() => {
+    const savedToken = localStorage.getItem('authToken');
+    if (savedToken) {
+      setToken(savedToken);
+    }
+  }, []);
 
   useEffect(() => {
     const handleResize = () => {
@@ -52,6 +63,46 @@ function App() {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
+
+  const handleLogin = async (username, password) => {
+    setIsLoginLoading(true);
+    setLoginError('');
+    try {
+      const response = await fetch('http://127.0.0.1:8000/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          'username': username,
+          'password': password
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Usuário ou senha inválidos.');
+      }
+
+      const data = await response.json();
+      const authToken = data.access_token;
+
+      localStorage.setItem('authToken', authToken); // Salva o token no navegador
+      setToken(authToken); // Atualiza o estado para mostrar a aplicação
+
+    } catch (err) {
+      setLoginError(err.message);
+    } finally {
+      setIsLoginLoading(false);
+    }
+  };
+
+  // --- NOVA FUNÇÃO DE LOGOUT ---
+  const handleLogout = () => {
+    localStorage.removeItem('authToken');
+    setToken(null);
+    setConversations({}); // Limpa os dados
+    setActiveConversationId(null);
+  };
+
+
 const handleToggleCopilot = () => {
     setIsCopilotOpen(prevState => !prevState);
   };
@@ -151,7 +202,7 @@ const handleToggleCopilot = () => {
 
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/generate_response', {
+      const response = await fetchWithAuth('http://127.0.0.1:8000/generate_response', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: query, conversation_id: activeConversationId, current_stage_id: currentStage }),
@@ -277,10 +328,32 @@ const handleMessageDrop = (droppedText) => {
   handleSuggestionRequest(droppedText);
 };
 
+const fetchWithAuth = useCallback(async (url, options = {}) => {
+    const token = localStorage.getItem('authToken');
+
+    // Prepara os cabeçalhos, adicionando o de Autorização
+    const headers = {
+      ...options.headers,
+      'Authorization': `Bearer ${token}`
+    };
+
+    const response = await fetch(url, { ...options, headers });
+
+    // Se o token for inválido ou expirar, o backend retornará 401.
+    // Nesse caso, fazemos o logout automático do usuário.
+    if (response.status === 401) {
+      handleLogout();
+      // Lança um erro para parar a execução da função que chamou o fetch.
+      throw new Error('Sessão expirada. Por favor, faça login novamente.');
+    }
+
+    return response;
+  }, []); // useCallback com array vazio garante que a função não seja recriada desnecessariamente
+
   // --- FUNÇÃO DE POLLING CORRIGIDA (CRÍTICA) ---
   const fetchConversations = useCallback(async () => {
     try {
-      const response = await fetch('http://127.0.0.1:8000/conversations');
+      const response = await fetchWithAuth('http://127.0.0.1:8000/conversations');
       if (!response.ok) { throw new Error('Falha ao buscar conversas do backend.'); }
       const data = await response.json();
 
@@ -353,6 +426,14 @@ const handleMessageDrop = (droppedText) => {
     return () => clearInterval(intervalId);
   }, [fetchConversations]);
 
+  // ======================================================
+  // O "PORTEIRO": LÓGICA DE RENDERIZAÇÃO CONDICIONAL
+  // ======================================================
+  if (!token) {
+    // Se NÃO HÁ token, renderiza a tela de login
+    return <Login onLogin={handleLogin} error={loginError} isLoading={isLoginLoading} />;
+  }
+
 
 // --- RENDERIZAÇÃO ---
   const activeConversation = conversations[activeConversationId];
@@ -393,6 +474,7 @@ const handleMessageDrop = (droppedText) => {
                 activeConversationId={activeConversationId}
                 onConversationSelect={handleConversationSelect}
                 onNewConversationClick={() => setIsModalOpen(true)}
+                onLogout={handleLogout}
               />
             ) : (
               // Se uma conversa estiver ativa, mostra o painel de chat
@@ -420,6 +502,7 @@ const handleMessageDrop = (droppedText) => {
                 activeConversationId={activeConversationId}
                 onConversationSelect={handleConversationSelect}
                 onNewConversationClick={() => setIsModalOpen(true)}
+                onLogout={handleLogout}
               />
             </Panel>
 
@@ -470,6 +553,14 @@ const handleMessageDrop = (droppedText) => {
       />
     </>
   );
+  return (
+    <>
+      {/* ... cole aqui o seu return antigo completo, desde <div className="app-container"> até o final ... */}
+      {/* Lembre-se de adicionar um botão de Logout em algum lugar, por exemplo, no ConversationList */}
+    </>
+  );
 }
+
+
 
 export default App;
