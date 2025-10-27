@@ -26,7 +26,7 @@ Siga estes passos para configurar o projeto na sua máquina local.
     cd backend
     python -m venv .venv
     source .venv/bin/activate  # No Windows: .venv\Scripts\activate
-    pip install -r requirements.txt
+    pip install -r requirements-backend.txt
     ```
 
 3.  **Configure o Frontend (React)**

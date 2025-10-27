@@ -1,6 +1,7 @@
 import os
 import shutil
 import json
+import traceback
 import subprocess
 import argparse
 from pathlib import Path
@@ -11,19 +12,22 @@ import fitz  # PyMuPDF --- NOVO ---
 from dotenv import load_dotenv
 
 from langchain.docstore.document import Document
-from langchain_community.vectorstores import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.exceptions import OutputParserException
 
+import chromadb
+from chromadb.utils.embedding_functions import GoogleGenerativeAiEmbeddingFunction
+
 # --- 1. CONFIGURAÇÕES E CONSTANTES GLOBAIS ---
-BACKEND_DIR = Path(__file__).parent.parent.resolve()
-DATA_DIR = BACKEND_DIR / "data"
-VIDEOS_DIR = BACKEND_DIR / "videos"
-CHROMA_PATH = str(BACKEND_DIR / "chroma_db_local")
-LINKS_FILE = BACKEND_DIR / "youtube_links.txt"
-TEMP_DIR = BACKEND_DIR / "temp_audio"
+APP_DIR = Path(__file__).parent.parent.resolve()
+DATA_DIR = APP_DIR / "data"               # Agora aponta para backend/data
+VIDEOS_DIR = APP_DIR / "videos"           # Agora aponta para backend/videos
+LINKS_FILE = APP_DIR / "scripts" / "youtube_links.txt" # Aponta para backend/scripts/youtube_links.txt
+TEMP_DIR = APP_DIR / "temp_audio"         # Agora aponta para backend/temp_audio
+CHROMA_HOST = os.environ.get("CHROMA_HOST")
+
 REFINER_PROMPT_JSON_TEMPLATE = """
 Você é um sistema especialista em ETL (Extração, Transformação e Carga) de conhecimento. Sua função é receber um trecho de uma transcrição de vídeo-aula ou um texto de um documento e transformá-lo em um ou mais "chunks" de conhecimento em formato JSON. Cada chunk deve ser atômico, coeso e focado em um único tópico ou subtópico. O objetivo é criar uma base de dados vetorial otimizada para buscas de similaridade (RAG).
 
@@ -220,45 +224,148 @@ def refine_single_json_file(json_filepath: Path, chain, source_type: str):
         print(f"  -> ❌ ERRO GERAL ao refinar o arquivo '{json_filepath.name}': {e}")
 
 
-def create_database_from_all_jsonl():
-    # ... (código inalterado)
-    print("\n--- [FINAL] CRIANDO O BANCO DE DADOS VETORIAL ---")
+# Em backend/scripts/gerenciar_pipeline.py
+
+# Garanta estas importações no topo do arquivo:
+import json
+import os
+from pathlib import Path
+from urllib.parse import urlparse
+import chromadb
+from chromadb.config import Settings  # Necessário para LangChain Chroma client_settings
+from langchain.docstore.document import Document
+from langchain_community.vectorstores import Chroma
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
+
+# (Outras importações que a função usa)
+
+def create_database_from_all_jsonl(args):
+    """
+    Lê arquivos refinado_*.jsonl e adiciona ao ChromaDB v1.2.2 remoto NATIVAMENTE.
+    """
+    print("\n--- [FINAL] CRIANDO O BANCO DE DADOS VETORIAL (v1.2.2) ---")
     all_chunks = []
-    jsonl_files = list(DATA_DIR.glob("refinado_*.jsonl"))
+
+    # Define o DATA_DIR corretamente (como já está no seu arquivo)
+    CURRENT_DATA_DIR = APP_DIR / "data"
+    print(f"DEBUG: Tentando listar diretório: {CURRENT_DATA_DIR} (Tipo: {type(CURRENT_DATA_DIR)})")
+
+    jsonl_files = list(CURRENT_DATA_DIR.glob("refinado_*.jsonl"))
     if not jsonl_files:
         print("AVISO: Nenhum arquivo .jsonl encontrado para criar o banco de dados.")
         return
+
+    # Lê todos os chunks dos arquivos .jsonl
     for file_path in jsonl_files:
         with open(file_path, 'r', encoding='utf-8') as f:
             for line in f:
                 try:
                     data = json.loads(line)
-                    if "tags" in data["metadata"] and isinstance(data["metadata"]["tags"], list):
-                        data["metadata"]["tags"] = ", ".join(data["metadata"]["tags"])
-                    doc = Document(page_content=data["content"],
-                                   metadata={**data["metadata"], "chunk_id": data["chunk_id"], "title": data["title"]})
+                    # Cria o objeto Document do LangChain (usado apenas para estrutura temporária)
+                    doc = Document(page_content=data.get("content", ""),
+                                   metadata={**data.get("metadata", {}),
+                                             "chunk_id": data.get("chunk_id", "N/A"),
+                                             "title": data.get("title", "Sem Título")})
                     all_chunks.append(doc)
-                except (json.JSONDecodeError, KeyError) as e:
+                except (json.JSONDecodeError, KeyError, TypeError) as e:
                     print(f"  -> ⚠️ AVISO: Pulando linha mal formada no arquivo '{file_path.name}'. Erro: {e}")
+
     if not all_chunks:
         print("\nAVISO: Nenhum chunk válido foi extraído para adicionar ao banco de dados.")
         return
     print(f"INFO: Total de {len(all_chunks)} chunks para adicionar ao DB.")
+
+    # Configurações de API e DB
     api_key = os.environ.get("GEMINI_API_KEY")
-    embeddings_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
-    if os.path.exists(CHROMA_PATH): shutil.rmtree(CHROMA_PATH)
-    print("  -> Inicializando novo banco de dados ChromaDB...")
-    db = Chroma.from_documents(
-        documents=all_chunks,
-        embedding=embeddings_model,
-        persist_directory=CHROMA_PATH
-    )
-    print(f"  -> Adicionados {len(all_chunks)} chunks em uma única operação.")
-    db.persist()
-    print("✅ Banco de Dados criado/atualizado com sucesso!")
+    CHROMA_URL = os.environ.get("CHROMA_HOST")
+    COLLECTION_NAME = "evolution"
 
+    if not api_key or not CHROMA_URL:
+        print("❌ ERRO: GEMINI_API_KEY ou CHROMA_HOST não configuradas.")
+        return
 
-# --- 3. ORQUESTRADOR PRINCIPAL ---
+    # Conecta usando HttpClient nativo v1.2.2 (MÉTODO CORRETO)
+    print(f"  -> Conectando ao servidor ChromaDB v1.2.2 em: {CHROMA_URL} via HttpClient...")
+    try:
+        parsed_url = urlparse(CHROMA_URL)
+        host_name = parsed_url.netloc  # Ex: chroma-server-....run.app (sem https://)
+        ssl_enabled = parsed_url.scheme == 'https'
+
+        if not host_name:
+            raise ValueError("Não foi possível extrair o hostname da CHROMA_HOST URL.")
+
+        print(f"  -> Usando HttpClient com host='{host_name}', ssl={ssl_enabled}")
+
+        remote_client = chromadb.HttpClient(
+            host=host_name,
+            ssl=ssl_enabled,
+            # port=443 # Omitir a porta 443 é o padrão para ssl=True e mais seguro
+        )
+        remote_client.heartbeat()  # Testa a conexão
+        print("  -> Conexão HttpClient v1.2.2 e Heartbeat OK.")
+
+    except Exception as e:
+        print(f"  -> ❌ ERRO ao conectar via HttpClient v1.2.2: {e}")
+        traceback.print_exc()
+        return
+
+    # Limpa coleção antiga se --full-rebuild
+    if args.full_rebuild:
+        print(f"  -> Removendo Collection '{COLLECTION_NAME}' (--full-rebuild)...")
+        try:
+            remote_client.delete_collection(name=COLLECTION_NAME)
+            print(f"  -> Collection '{COLLECTION_NAME}' removida.")
+        except Exception as e:
+            print(f"  -> Aviso: Não foi possível remover collection '{COLLECTION_NAME}' (pode não existir): {e}")
+
+    # Obtém/Cria coleção e adiciona dados NATIVAMENTE
+    try:
+        print(f"  -> Obtendo/Criando collection '{COLLECTION_NAME}'...")
+
+        # Usa a função de embedding NATIVA do chromadb
+        embedding_function_native = GoogleGenerativeAiEmbeddingFunction(
+            api_key=api_key, model_name="models/text-embedding-004"
+        )
+
+        collection = remote_client.get_or_create_collection(
+            name=COLLECTION_NAME,
+            embedding_function=embedding_function_native
+        )
+        print(f"  -> Acesso à collection OK.")
+
+        # Prepara dados NATIVOS (extrai de objetos Document)
+        ids = [chunk.metadata.get("chunk_id", f"chunk_{i}") for i, chunk in enumerate(all_chunks)]
+        documents = [chunk.page_content for chunk in all_chunks]
+        metadatas = [chunk.metadata for chunk in all_chunks]
+
+        # Adiciona os documentos em lotes USANDO O CLIENTE NATIVO
+        print(f"  -> Adicionando {len(ids)} chunks ao DB remoto via HttpClient...")
+        batch_size = 100
+        for i in range(0, len(ids), batch_size):
+            end_index = min(i + batch_size, len(ids))
+            batch_num = i // batch_size + 1
+            total_batches = (len(ids) + batch_size - 1) // batch_size
+
+            print(f"    -> Lote {batch_num}/{total_batches} (índices {i}-{end_index - 1})")
+
+            collection.add(  # MÉTODO NATIVO
+                ids=ids[i:end_index],
+                documents=documents[i:end_index],
+                metadatas=metadatas[i:end_index]
+            )
+
+        # Verifica contagem final USANDO O CLIENTE NATIVO
+        final_count = collection.count()  # MÉTODO NATIVO
+        print(f"  -> Total processado: {len(all_chunks)} chunks")
+        print(f"  -> Contagem final na Collection '{COLLECTION_NAME}': {final_count}")
+        print("✅ Banco de Dados remoto criado/atualizado com sucesso!")
+
+    except Exception as e:
+        print(f"  -> ❌ ERRO durante adição nativa: {e}")
+        traceback.print_exc()
+        return
+
 def main():
     parser = argparse.ArgumentParser(description="Pipeline de gestão da base de conhecimento do RAG.")
     parser.add_argument('--full-rebuild', action='store_true',
@@ -292,25 +399,26 @@ def main():
 
     # --- Etapa 1: Processar vídeos do YouTube ---
     # ... (código inalterado)
-    if LINKS_FILE.exists():
-        video_sources = []
-        with open(LINKS_FILE, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    parts = line.split(',')
-                    if len(parts) >= 1 and parts[0].startswith('http'):
-                        url = parts[0]
-                        source_type = parts[1].strip() if len(parts) > 1 else 'video_tutorial'
-                        video_sources.append({'url': url, 'type': source_type})
-        if video_sources:
-            print(f"\n--- INICIANDO PROCESSAMENTO DE {len(video_sources)} VÍDEOS DO YOUTUBE ---")
-            for index, source in enumerate(video_sources):
-                print(
-                    f"\n--- Processando Vídeo {index + 1}/{len(video_sources)}: {source['url']} (Tipo: {source['type']}) ---")
-                json_path = transcribe_youtube_video(source['url'], whisper_model)
-                if json_path:
-                    json_paths_to_refine.append({'path': json_path, 'type': source['type']})
+    # if LINKS_FILE.exists():
+    #     video_sources = []
+    #     with open(LINKS_FILE, 'r') as f:
+    #         for line in f:
+    #             line = line.strip()
+    #             if line and not line.startswith('#'):
+    #                 parts = line.split(',')
+    #                 if len(parts) >= 1 and parts[0].startswith('http'):
+    #                     url = parts[0]
+    #                     source_type = parts[1].strip() if len(parts) > 1 else 'video_tutorial'
+    #                     video_sources.append({'url': url, 'type': source_type})
+    video_sources = []
+    if video_sources:
+        print(f"\n--- INICIANDO PROCESSAMENTO DE {len(video_sources)} VÍDEOS DO YOUTUBE ---")
+        for index, source in enumerate(video_sources):
+            print(
+                f"\n--- Processando Vídeo {index + 1}/{len(video_sources)}: {source['url']} (Tipo: {source['type']}) ---")
+            json_path = transcribe_youtube_video(source['url'], whisper_model)
+            if json_path:
+                json_paths_to_refine.append({'path': json_path, 'type': source['type']})
 
     # --- Etapa 2: Processar vídeos locais ---
     # ... (código inalterado)
@@ -326,6 +434,12 @@ def main():
 
     # --- NOVO ---: Etapa 3: Processar documentos TXT e PDF da pasta DATA
     document_files = list(DATA_DIR.glob("*.txt")) + list(DATA_DIR.glob("*.pdf"))
+
+    print(f"\nDEBUG: Procurando documentos em: {DATA_DIR}")
+    print(f"DEBUG: Arquivos .txt encontrados: {[f.name for f in DATA_DIR.glob('*.txt')]}")
+    print(f"DEBUG: Arquivos .pdf encontrados: {[f.name for f in DATA_DIR.glob('*.pdf')]}")
+    print(f"DEBUG: Total de document_files: {len(document_files)}")  # DEBUG
+
     if document_files:
         print(f"\n--- INICIANDO PROCESSAMENTO DE {len(document_files)} DOCUMENTOS LOCAIS ---")
         for index, doc_file in enumerate(document_files):
@@ -344,13 +458,18 @@ def main():
 
     # --- Etapa 4: Refinar todos os JSONs coletados ---
     # ... (código inalterado)
+    print(f"\nDEBUG: JSONs a serem refinados: {[source['path'].name for source in json_paths_to_refine]}")
     if json_paths_to_refine:
         print(f"\n--- INICIANDO ETAPA DE REFINAMENTO PARA {len(json_paths_to_refine)} FONTES ---")
         for source in json_paths_to_refine:
             refine_single_json_file(source['path'], refiner_chain, source['type'])
 
     # --- Etapa 5: Criar o banco de dados final ---
-    create_database_from_all_jsonl()
+    print("\nDEBUG: Verificando arquivos .jsonl antes de criar DB...")
+    jsonl_files_debug = list(DATA_DIR.glob("refinado_*.jsonl"))
+    print(f"DEBUG: Arquivos .jsonl encontrados em {DATA_DIR}: {[f.name for f in jsonl_files_debug]}")
+
+    create_database_from_all_jsonl(args)
 
     # --- Limpeza Final ---
     if os.path.exists(TEMP_DIR):

@@ -9,14 +9,14 @@ users_db: Dict[str, Dict] = {
     "vendedor1": {
         "username": "vendedor1",
         "full_name": "João Silva",
-        "hashed_password": "$2b$12$HORoqPvMQc/vN/NxDQ8d/uTfhqgPgZ/X1dmNkuLTkIUTk2A.xZvq2", # Hash para "senha123"
+        "hashed_password": "$2b$12$Bao0p1l64yZPJR.vRqne4OK9P6PQQOlUAs/8RSazEw71zlg..wpq.",
         "disabled": False,
         "tenant_id": "cosmoserp"
     },
     "vendedor2": {
         "username": "vendedor2",
         "full_name": "Maria Souza",
-        "hashed_password": "$2b$12$3P7jZNBp6vxWTBqZXUIsEeiTnqdQYq4zMo0Z4wnzlbmE4mjYzFoBW", # Hash para "senha456" (exemplo)
+        "hashed_password": "$2b$12$hyPmv9uQlcSsbuGLG3LDP.WHYe3sMi0IzwV0smTjHM2QucQjZO20q",
         "disabled": False,
         "tenant_id": "cosmoserp"
     }

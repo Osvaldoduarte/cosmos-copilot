@@ -73,7 +73,7 @@ A execução é dividida em três serviços principais: a API do WhatsApp, o nos
     cd backend
     python -m venv .venv
     source .venv/bin/activate  # No Windows: .venv\Scripts\activate
-    pip install -r requirements.txt
+    pip install -r requirements-backend.txt
     uvicorn main:app --reload
     ```
 

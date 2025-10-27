@@ -1,12 +1,23 @@
-FROM python:3.9-slim
+FROM python:3.11-slim
 WORKDIR /app
 
-# Copia o requirements do backend (pasta pai)
-COPY ../requirements.txt .
+# Instala o Git
+RUN apt-get update && \
+    apt-get install -y git && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copia o requirements.txt DE DENTRO DA PASTA scripts/ no contexto
+COPY scripts/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia todo o código do backend (incluindo scripts, core, etc.)
-COPY ../ .
+# --- AJUSTES NOS CAMINHOS DE CÓPIA ---
+# Copia o script DE DENTRO DA PASTA scripts/ no contexto para a raiz /app
+COPY scripts/gerenciar_pipeline.py .
 
-# Comando padrão para executar o pipeline
-CMD ["python", "scripts/gerenciar_pipeline.py"]
+# Copia core/, data/, youtube_links.txt DA RAIZ DO CONTEXTO (backend/)
+COPY core/ /app/core/
+COPY scripts/data/ /app/data/
+COPY scripts/youtube_links.txt .
+
+# O CMD continua o mesmo, pois o script foi copiado para /app
+CMD ["python", "gerenciar_pipeline.py"]

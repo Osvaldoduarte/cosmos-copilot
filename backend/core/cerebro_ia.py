@@ -4,19 +4,26 @@ import chromadb
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from dotenv import load_dotenv
+from urllib.parse import urlparse
+import traceback
 
 from langchain.docstore.document import Document
 from langchain.prompts import ChatPromptTemplate
-from langchain.retrievers import BM25Retriever, EnsembleRetriever
+from langchain_community.retrievers import BM25Retriever # Corrigido conforme aviso
+from langchain.retrievers import EnsembleRetriever
 from langchain_community.vectorstores import Chroma
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
+
+from chromadb.config import Settings
 
 from thefuzz import fuzz
 
 
 # --- CONFIGURAÇÕES GLOBAIS ---
+
+CHROMA_CLIENT = None
 CORE_DIR = Path(__file__).parent.resolve()
 BACKEND_DIR = CORE_DIR.parent.resolve()
 DATA_DIR = BACKEND_DIR / "data"
@@ -44,22 +51,126 @@ def print_info(msg): print(f"{Colors.BLUE}ℹ️  {msg}{Colors.END}")
 def print_success(msg): print(f"{Colors.GREEN}✅ {msg}{Colors.END}")
 def print_warning(msg): print(f"{Colors.YELLOW}⚠️  {msg}{Colors.END}")
 
+
+def initialize_chroma_client():
+    """Inicializa e armazena o cliente ChromaDB HttpClient para v1.2.2."""
+    global CHROMA_CLIENT
+    CHROMA_URL = os.environ.get("CHROMA_HOST") # URL completa: https://...
+
+    if CHROMA_CLIENT is None and CHROMA_URL:
+        print_info(f"Conectando ao ChromaDB v1.2.2 em {CHROMA_URL}")
+        try:
+            # Extrai apenas o host da URL para o parâmetro 'host'
+            parsed_url = urlparse(CHROMA_URL)
+            host_name = parsed_url.netloc # Ex: chroma-server-....run.app (sem https://)
+            ssl_enabled = parsed_url.scheme == 'https'
+
+            if not host_name:
+                 raise ValueError("Não foi possível extrair o hostname da CHROMA_HOST URL.")
+
+            print_info(f"Usando HttpClient com host='{host_name}', ssl={ssl_enabled}")
+
+            # Para ChromaDB v1.x, HttpClient usa host (sem https://) e ssl
+            CHROMA_CLIENT = chromadb.HttpClient(
+                host=host_name,
+                ssl=ssl_enabled
+                # port=443 # Omitir a porta é o padrão para ssl=True
+            )
+            print_info("Testando conexão com heartbeat...")
+            CHROMA_CLIENT.heartbeat()
+            print_success("ChromaDB Cliente v1.2.2 conectado com sucesso!")
+
+        except Exception as e:
+            print_error(f"Falha na conexão ChromaDB v1.2.2: {e}")
+            traceback.print_exc()
+            return None
+    return CHROMA_CLIENT
+
+
+def load_models(chroma_client_instance) -> tuple:  # Recebe a instância conectada
+    """Carrega modelos e inicializa retrievers para v1.2.2 (Substitui AMBAS as versões antigas)"""
+    load_dotenv()
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key: raise ValueError("ERRO: Chave GEMINI_API_KEY não configurada.")
+
+    llm = ChatGoogleGenerativeAI(
+        model=GEMINI_MODEL_NAME,
+        google_api_key=api_key,
+        temperature=0.1
+    )
+
+    embeddings_model_langchain = GoogleGenerativeAIEmbeddings(
+        model="models/text-embedding-004",
+        google_api_key=api_key
+    )
+
+    COLLECTION_NAME = "evolution"
+
+    # Conecta à collection remota usando LangChain Chroma wrapper e o HttpClient
+    print_info(f"Conectando LangChain Chroma à collection '{COLLECTION_NAME}'...")
+    try:
+        # Passa o cliente HttpClient já conectado
+        db_tecnico = Chroma(
+            client=chroma_client_instance,  # USA O CLIENTE JÁ CONECTADO!
+            collection_name=COLLECTION_NAME,
+            embedding_function=embeddings_model_langchain  # Langchain usa sua própria func
+        )
+
+        # Acessa a coleção nativa subjacente para operações
+        native_collection = db_tecnico._collection
+
+        count = native_collection.count()
+        print_success(f"Conectado à collection '{COLLECTION_NAME}'. Documentos encontrados: {count}")
+
+        if count == 0:
+            raise FileNotFoundError(
+                "ERRO: Banco de Dados Técnico (ChromaDB) está vazio. Execute o pipeline de ingestão.")
+
+    except Exception as e:
+        print_error(f"Erro ao conectar LangChain Chroma à collection: {e}")
+        traceback.print_exc()
+        raise
+
+    # Inicializa retrievers
+    print_info("Preparando retrievers para Busca Híbrida...")
+
+    # Busca os documentos usando o método nativo (mais confiável)
+    all_docs_resp = native_collection.get(include=["metadatas", "documents"])
+
+    if not all_docs_resp or not all_docs_resp.get('documents'):
+        raise FileNotFoundError("ERRO: Falha ao buscar documentos da coleção remota.")
+
+    docs_list = [
+        Document(page_content=doc, metadata=meta or {})  # Garante que metadata não seja None
+        for doc, meta in zip(all_docs_resp['documents'], all_docs_resp['metadatas'])
+    ]
+    print(f"INFO: {len(docs_list)} documentos baixados para o BM25.")
+
+    keyword_retriever = BM25Retriever.from_documents(docs_list)
+    keyword_retriever.k = 3
+
+    vector_retriever = db_tecnico.as_retriever(search_kwargs={"k": 3})
+
+    ensemble_retriever = EnsembleRetriever(
+        retrievers=[keyword_retriever, vector_retriever],
+        weights=[0.5, 0.5]
+    )
+    print_success("Retriever Híbrido criado")
+
+    # Carrega playbook
+    if not Path(PLAYBOOK_PATH).exists():
+        raise FileNotFoundError(f"Playbook não encontrado em {PLAYBOOK_PATH}")
+    with open(PLAYBOOK_PATH, 'r', encoding='utf-8') as f:
+        playbook = json.load(f)
+
+    print_success("LLM, Embedding, DB Técnico e Playbook carregados")
+    return llm, ensemble_retriever, embeddings_model_langchain, playbook
 if not api_key:
     raise ValueError("A variável de ambiente GEMINI_API_KEY não foi definida.")
 
 # Inicializa o modelo de embeddings que será usado em ambos os casos
 embeddings_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
 
-if CHROMA_HOST:
-    print("✅ Conectando ao banco de dados ChromaDB remoto no Cloud Run...")
-    # Se a variável CHROMA_HOST existe, conecta-se ao servidor na nuvem
-    # O port 443 e ssl=True são para conexões HTTPS seguras
-    chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=443, ssl=True)
-else:
-    print("ℹ️  Usando banco de dados ChromaDB local. (Para deploy, configure CHROMA_HOST)")
-    # Se não, continua usando o banco de dados da pasta local
-    CHROMA_PATH = str(Path(__file__).parent.parent / "chroma_db_local")
-    chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
 
 # --- DEFINIÇÃO DA ESTRUTURA DE SAÍDA ---
 class StageTransitionDecision(BaseModel):
@@ -360,7 +471,7 @@ def get_dynamic_conversation_context(
 
 # --- FUNÇÕES PRINCIPAIS ---
 
-def load_models() -> tuple:
+def load_models(chroma_client) -> tuple:
     load_dotenv()
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key: raise ValueError("ERRO: Chave GEMINI_API_KEY não configurada.")
@@ -369,7 +480,7 @@ def load_models() -> tuple:
     embeddings_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
 
     if not Path(CHROMA_PATH).exists(): raise FileNotFoundError(f"ERRO: DB Técnico não encontrado em {CHROMA_PATH}.")
-    db_tecnico = Chroma(persist_directory=CHROMA_PATH, embedding_function=embeddings_model)
+    db_tecnico = Chroma(client=chroma_client, embedding_function=embeddings_model)
 
     print("INFO: Preparando retrievers para a Busca Híbrida...")
     # 1. Pega todos os documentos do nosso banco de dados técnico para a busca por palavra-chave.

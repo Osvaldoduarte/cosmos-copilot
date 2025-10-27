@@ -1,15 +1,18 @@
-FROM python:3.9-slim
+FROM python:3.11-slim
 WORKDIR /app
 
-# Copia primeiro o requirements para aproveitar o cache do Docker
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Instala Git e pacotes essenciais para dependências complexas (como pytube)
+RUN apt-get update && \
+    apt-get install -y git && \
+    rm -rf /var/lib/apt/lists/*
 
-# Agora copia o resto do código do backend
+# Copia e instala as dependências.
+COPY requirements-backend.txt .
+RUN pip install -r requirements-backend.txt
+
+# Copia o código-fonte restante
 COPY . .
 
-# O Cloud Run injeta a variável PORT, mas 8080 é um padrão seguro
+# O Cloud Run espera que o app rode na porta 8080 por padrão
 EXPOSE 8080
-
-# Comando para iniciar sua aplicação FastAPI
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

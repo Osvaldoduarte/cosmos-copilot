@@ -68,6 +68,12 @@ load_dotenv(dotenv_path=env_path)
 EVO_URL = os.getenv("EVOLUTION_API_URL")
 EVO_INSTANCE = os.getenv("EVOLUTION_INSTANCE_NAME")
 
+GLOBAL_MODELS = {
+    "llm": None,
+    "retriever": None,
+    "embeddings_model": None,
+    "playbook": None
+}
 
 # --- 1. Inicialização da Aplicação e Carregamento dos Modelos ---
 
@@ -134,6 +140,7 @@ def authenticate_user(username: str, password: str) -> Optional[User]:
         return User(**user_data)
 
 
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     Cria um novo token de acesso (JWT).
@@ -150,6 +157,55 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 
 # --- Endpoint de Login ---
+@app.on_event("startup")
+async def startup_event():
+    """
+    ✅ CORRIGIDO: Tratamento robusto de erros de conexão
+    """
+    print_info("🚀 Iniciando servidor backend...")
+
+    global GLOBAL_MODELS
+
+    print_warning("=====================================================")
+    print_warning("⚠️ MODO CHAT ATIVADO: Inicialização da IA desabilitada.")
+    print_warning("=====================================================")
+
+    # try:
+    #     # Tenta conectar ao ChromaDB
+    #     print_info("📡 Tentando conectar ao ChromaDB...")
+    #     chroma_client = cerebro_ia.initialize_chroma_client()
+    #
+    #     if chroma_client:
+    #         try:
+    #             # Carrega os modelos de IA
+    #             print_info("🤖 Carregando modelos de IA...")
+    #             llm, ensemble_retriever, embeddings_model, playbook = cerebro_ia.load_models(chroma_client)
+    #
+    #             GLOBAL_MODELS["llm"] = llm
+    #             GLOBAL_MODELS["retriever"] = ensemble_retriever
+    #             GLOBAL_MODELS["embeddings_model"] = embeddings_model
+    #             GLOBAL_MODELS["playbook"] = playbook
+    #
+    #             print_success("✅ ChromaDB e modelos de IA carregados com sucesso!")
+    #         except Exception as model_error:
+    #             print_error(f"❌ Erro ao carregar modelos: {model_error}")
+    #             print_warning("⚠️ Servidor iniciando SEM recursos de IA")
+    #     else:
+    #         print_warning("⚠️ ChromaDB indisponível. Servidor iniciando SEM recursos de IA")
+    #
+    # except Exception as e:
+    #     print_error(f"❌ ERRO no startup: {e}")
+    #     print_warning("⚠️ Servidor iniciando em modo degradado")
+
+    # ✅ Sincronização com Evolution API em background (não bloqueia o servidor)
+    try:
+        print_info("📞 Agendando sincronização com Evolution API...")
+        asyncio.create_task(load_history_from_evolution_api())
+    except Exception as sync_error:
+        print_error(f"❌ Erro ao agendar sincronização: {sync_error}")
+        print_warning("⚠️ Sincronização desabilitada")
+
+
 @app.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     """
@@ -257,23 +313,31 @@ async def mark_conversation_as_read(jid: str, current_user: User = Depends(get_c
 
 # --- GATILHO DE INICIALIZAÇÃO ---
 
-@app.on_event("startup")
-async def on_startup():
-    # A sincronização agora roda como uma tarefa em segundo plano
-    # para não bloquear a inicialização do servidor.
-    asyncio.create_task(load_history_from_evolution_api())
+# @app.on_event("startup")
+# async def on_startup():
+#     # A sincronização agora roda como uma tarefa em segundo plano
+#     # para não bloquear a inicialização do servidor.
+#     cerebro_ia.initialize_chroma_client()
+#     asyncio.create_task(load_history_from_evolution_api())
 # ... (o resto do seu código, como a configuração do CORS, continua aqui)
 # Configuração de CORS
 
-origins = ["http://localhost:3000"]
+origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",  # Vite dev
+    "https://gen-lang-client-0750608840.web.app",
+    "https://gen-lang-client-0750608840.firebaseapp.com",
+    # Adicione também o domínio customizado se tiver
+]
 
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=origins,  # ✅ Lista explícita de origens permitidas
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Permite todos os métodos HTTP
+    allow_headers=["*"],  # Permite todos os headers
+    expose_headers=["*"],  # Expõe todos os headers na resposta
 )
 
 def find_existing_conversation_jid(jid: str) -> str | None:
@@ -485,11 +549,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str, token: 
     except WebSocketDisconnect:
         manager.disconnect(conversation_id)
 
-# Carrega todos os modelos e o playbook.
 
-llm, ensemble_retriever, embeddings_model, playbook = cerebro_ia.load_models()
-
-print("✅ Modelos e playbook carregados. Servidor pronto.")
 # --- Armazenamento Temporário de Conversas e Sugestões (Estado Global) ---
 
 
@@ -548,7 +608,7 @@ async def process_and_broadcast_message(conversation_id: str, message_obj: Dict[
             # Garante que a conversa exista na memória
             if conversation_id not in CONVERSATION_STATE_STORE:
                 CONVERSATION_STATE_STORE[conversation_id] = {
-                    "name": conversation_id.split('@')[0], "messages": [], "stage_id": playbook["initial_stage"],
+                    "name": conversation_id.split('@')[0], "messages": [], "stage_id": GLOBAL_MODELS["playbook"]["initial_stage"],
                     "suggestions": [], "dados_cliente": {}, "unread": False, "unreadCount": 0, "lastUpdated": 0
                 }
                 # Garante que unreadCount exista se a conversa já existia antes
@@ -602,7 +662,10 @@ async def send_seller_message_route(request: MessageSendRequest, background_task
         }
 
         # Indexar no RAG
-        conversation_db = cerebro_ia.get_or_create_conversation_db(request.conversation_id, embeddings_model)
+        conversation_db = cerebro_ia.get_or_create_conversation_db(
+            request.conversation_id,
+            GLOBAL_MODELS["embeddings_model"]
+        )
         cerebro_ia.add_message_to_conversation_rag(conversation_db, request.conversation_id, message_obj)
 
         # Atualizar o estado global
@@ -651,6 +714,13 @@ async def get_all_conversations(current_user: User = Depends(get_current_active_
 @app.post("/generate_response")
 async def generate_response(request: SuggestionRequest, current_user: User = Depends(get_current_active_user)):
     """Gera sugestões de venda usando a memória estruturada e o RAG dinâmico."""
+    if GLOBAL_MODELS.get("llm") is None:
+        print_warning("Tentativa de gerar resposta, mas os modelos de IA não estão carregados...")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Os recursos de IA não estão disponíveis no momento."
+        )
+
     try:
         # 1. Pega os dados completos da conversa do nosso estado em memória
         conversation_data = CONVERSATION_STATE_STORE.get(request.conversation_id)
@@ -662,10 +732,10 @@ async def generate_response(request: SuggestionRequest, current_user: User = Dep
 
         # 2. Chama a função do cérebro passando todos os contextos
         resultado_ia = cerebro_ia.generate_sales_suggestions(
-            llm=llm,
-            ensemble_retriever=ensemble_retriever,
-            embeddings_model=embeddings_model,
-            playbook=playbook,
+            llm=GLOBAL_MODELS["llm"],
+            ensemble_retriever=GLOBAL_MODELS["retriever"],
+            embeddings_model=GLOBAL_MODELS["embeddings_model"],
+            playbook=GLOBAL_MODELS["playbook"],
             query=request.query,
             conversation_id=request.conversation_id,
             current_stage_id=request.current_stage_id,
@@ -706,6 +776,13 @@ async def create_or_update_conversation_details(contact_id: str, contact_data: d
 # Em main.py, substitua a função inteira por esta versão
 
 async def load_history_from_evolution_api():
+    """
+    ✅ CORRIGIDO: Tratamento robusto de erros 404 e timeouts
+    """
+    # Aguarda 5 segundos para o servidor estar totalmente pronto
+    await asyncio.sleep(5)
+
+    print_info("🔄 Iniciando sincronização com Evolution API...")
 
     async with STATE_LOCK:
         try:
@@ -714,86 +791,130 @@ async def load_history_from_evolution_api():
 
                 # PASSO 1: Buscar Contatos
                 contacts_url = f"{EVO_URL}/chat/findContacts/{EVO_INSTANCE}"
-                contacts_response = await client.post(contacts_url, headers=headers, json={})
-                contacts_response.raise_for_status()
-                contacts = contacts_response.json() or []
-                print_success(f"✅ Encontrados {len(contacts)} contatos.")
 
-                # PASSO 2: Carregar Histórico Completo
-                all_messages_flat_list = []
-                current_page, total_pages = 1, 1
-                while current_page <= total_pages:
-                    messages_url = f"{EVO_URL}/chat/findMessages/{EVO_INSTANCE}"
-                    payload = {"limit": 100, "page": current_page}
-                    response = await client.post(messages_url, headers=headers, json=payload, timeout=60.0)
-                    if response.status_code != 200: break
-                    data = response.json()
-                    message_data = data.get("messages", {})
-                    total_pages = message_data.get("pages", 1)
-                    records = message_data.get("records", [])
-                    if not records: break
-                    all_messages_flat_list.extend(records)
-                    print(f"    - Página {current_page}/{total_pages} carregada...")
-                    current_page += 1
-                print_success(f"✅ Histórico de {len(all_messages_flat_list)} mensagens carregado.")
+                try:
+                    print_info(f"📡 Buscando contatos em: {contacts_url}")
+                    contacts_response = await client.post(contacts_url, headers=headers, json={})
+                    contacts_response.raise_for_status()
+                    contacts = contacts_response.json() or []
+                    print_success(f"✅ Encontrados {len(contacts)} contatos.")
 
-                # PASSO 3: Agrupar mensagens e montar o estado final
-                messages_grouped_by_jid = {}
-                for msg in all_messages_flat_list:
-                    key = msg.get("key", {})
-                    remote_jid = key.get("remoteJid")
-                    if not remote_jid: continue
-                    if remote_jid not in messages_grouped_by_jid:
-                        messages_grouped_by_jid[remote_jid] = []
-                    message_obj = msg.get("message", {})
-                    content = message_obj.get("conversation") or message_obj.get("extendedTextMessage", {}).get("text")
-                    if content:
-                        messages_grouped_by_jid[remote_jid].append({
-                            "content": content,
-                            "sender": "vendedor" if key.get("fromMe") else "cliente",
-                            "timestamp": msg.get("messageTimestamp", int(time.time())),
-                            "message_id": key.get("id", str(uuid.uuid4()))
-                        })
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 404:
+                        print_error(f"❌ Endpoint não encontrado (404): {contacts_url}")
+                        print_warning("⚠️ Verifique se a Evolution API está configurada corretamente")
+                        print_warning("⚠️ Endpoint esperado: POST /chat/findContacts/{instance}")
+                    else:
+                        print_error(f"❌ Erro HTTP {e.response.status_code}: {e.response.text}")
+                    return
 
-                new_conversation_store: Dict[str, Any] = {}
-                conversations_added = 0  # Contador para o log
-                for contact in contacts:
-                    jid = contact.get("remoteJid")
-                    if not jid or "@s.whatsapp.net" not in jid or "@g.us" in jid:
-                        continue
+                except httpx.ConnectError as e:
+                    print_error(f"❌ Erro de conexão com Evolution API: {e}")
+                    print_warning(f"⚠️ Verifique se a URL está correta: {EVO_URL}")
+                    return
 
-                    # Pega a lista de mensagens que agrupamos para este JID (ou uma lista vazia).
-                    contact_messages = messages_grouped_by_jid.get(jid, [])
+                except Exception as e:
+                    print_error(f"❌ Erro ao buscar contatos: {e}")
+                    return
 
-                    # =====================================================================
-                    # A NOVA CONDIÇÃO ESTÁ AQUI:
-                    # Só adiciona a conversa ao estado se ela tiver mensagens.
-                    # =====================================================================
-                    if contact_messages:
-                        contact_messages.sort(key=lambda x: x["timestamp"])  # Ordena só se houver mensagens
-                        name = contact.get("pushName") or contact.get("name") or jid.split('@')[0]
+                # PASSO 2: Carregar Histórico (só se conseguiu buscar contatos)
+                if contacts:
+                    all_messages_flat_list = []
+                    current_page, total_pages = 1, 1
 
-                        new_conversation_store[jid] = {
-                            "name": name,
-                            "avatar_url": contact.get("profilePicUrl") or "",
-                            "messages": contact_messages,
-                            "suggestions": [],
-                            "dados_cliente": {},
-                            "unread": False,
-                            "unreadCount": 0,
-                            "stage_id": "stage_prospecting"
-                        }
-                        conversations_added += 1  # Incrementa o contador
-                    # =====================================================================
+                    while current_page <= total_pages:
+                        try:
+                            messages_url = f"{EVO_URL}/chat/findMessages/{EVO_INSTANCE}"
+                            payload = {"limit": 100, "page": current_page}
 
-                global CONVERSATION_STATE_STORE
-                CONVERSATION_STATE_STORE = copy.deepcopy(new_conversation_store)
+                            response = await client.post(messages_url, headers=headers, json=payload, timeout=60.0)
 
-                print_success("\n" + "=" * 70)
-                print_success("SINCRONIZAÇÃO PARA FRONTEND CONCLUÍDA COM SUCESSO!")
-                # Atualiza o log para mostrar o número real de conversas montadas
-                print_info(f"📊 Resumo: {conversations_added} conversas com mensagens montadas.")
-                print_info("=" * 70 + "\n")
+                            if response.status_code != 200:
+                                print_warning(f"⚠️ Erro ao buscar página {current_page}: {response.status_code}")
+                                break
+
+                            data = response.json()
+                            message_data = data.get("messages", {})
+                            total_pages = message_data.get("pages", 1)
+                            records = message_data.get("records", [])
+
+                            if not records:
+                                break
+
+                            all_messages_flat_list.extend(records)
+                            print_info(f"    📄 Página {current_page}/{total_pages} carregada...")
+                            current_page += 1
+
+                        except Exception as page_error:
+                            print_error(f"❌ Erro na página {current_page}: {page_error}")
+                            break
+
+                    print_success(f"✅ {len(all_messages_flat_list)} mensagens carregadas")
+
+                    # PASSO 3: Processar mensagens e montar estado
+                    messages_grouped_by_jid = {}
+                    for msg in all_messages_flat_list:
+                        key = msg.get("key", {})
+                        remote_jid = key.get("remoteJid")
+
+                        if not remote_jid:
+                            continue
+
+                        if remote_jid not in messages_grouped_by_jid:
+                            messages_grouped_by_jid[remote_jid] = []
+
+                        message_obj = msg.get("message", {})
+                        content = (
+                                message_obj.get("conversation") or
+                                message_obj.get("extendedTextMessage", {}).get("text")
+                        )
+
+                        if content:
+                            messages_grouped_by_jid[remote_jid].append({
+                                "content": content,
+                                "sender": "vendedor" if key.get("fromMe") else "cliente",
+                                "timestamp": msg.get("messageTimestamp", int(time.time())),
+                                "message_id": key.get("id", str(uuid.uuid4()))
+                            })
+
+                    # Montar estado final
+                    new_conversation_store: Dict[str, Any] = {}
+                    conversations_added = 0
+
+                    for contact in contacts:
+                        jid = contact.get("remoteJid")
+
+                        # Ignora grupos e JIDs inválidos
+                        if not jid or "@s.whatsapp.net" not in jid or "@g.us" in jid:
+                            continue
+
+                        contact_messages = messages_grouped_by_jid.get(jid, [])
+
+                        # ✅ Só adiciona se tiver mensagens
+                        if contact_messages:
+                            contact_messages.sort(key=lambda x: x["timestamp"])
+                            name = contact.get("pushName") or contact.get("name") or jid.split('@')[0]
+
+                            new_conversation_store[jid] = {
+                                "name": name,
+                                "avatar_url": contact.get("profilePicUrl") or "",
+                                "messages": contact_messages,
+                                "suggestions": [],
+                                "dados_cliente": {},
+                                "unread": False,
+                                "unreadCount": 0,
+                                "stage_id": "stage_prospecting"
+                            }
+                            conversations_added += 1
+
+                    # Atualiza o estado global
+                    global CONVERSATION_STATE_STORE
+                    CONVERSATION_STATE_STORE = copy.deepcopy(new_conversation_store)
+
+                    print_success("\n" + "=" * 70)
+                    print_success("✅ SINCRONIZAÇÃO CONCLUÍDA!")
+                    print_info(f"📊 {conversations_added} conversas com mensagens carregadas")
+                    print_success("=" * 70 + "\n")
 
         except Exception as e:
             print_error(f"\n❌ ERRO CRÍTICO na sincronização: {e}")
@@ -895,4 +1016,6 @@ async def start_new_conversation(request: NewConversationRequest, background_tas
     return {"status": "success", "message": "Conversa iniciada. A mensagem aparecerá em breve."}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import os
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)

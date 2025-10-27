@@ -1,0 +1,25 @@
+steps:
+# --- NOVO PASSO DE DEBUG ---
+- name: 'ubuntu' # Usa uma imagem simples com 'cat'
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      echo "--- Conteúdo de scripts/gerenciar_pipeline.py no contexto do build ---"
+      cat scripts/gerenciar_pipeline.py || echo "ERRO: Não foi possível ler scripts/gerenciar_pipeline.py"
+      echo "---------------------------------------------------------------------"
+# --- FIM DO PASSO DE DEBUG ---
+
+# Passo original do Docker build
+- name: 'gcr.io/cloud-builders/docker'
+  args: [
+          'build',
+          '--no-cache',
+          '-t',
+          'gcr.io/$PROJECT_ID/cosmos-pipeline',
+          '-f',
+          'scripts/Dockerfile.pipeline',
+          '.'
+        ]
+images:
+- 'gcr.io/$PROJECT_ID/cosmos-pipeline'

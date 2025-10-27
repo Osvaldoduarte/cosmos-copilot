@@ -24,7 +24,7 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
-  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://cosmos-backend-129644477821.us-central1.run.app';
 
   // --- LÓGICA DE RESPONSIVIDADE ---
   // Um estado simples para saber se estamos em uma tela "mobile"
@@ -171,7 +171,7 @@ const fetchConversations = useCallback(async () => {
     setIsLoginLoading(true);
     setLoginError('');
     try {
-      const response = await fetchWithAuth('http://127.0.0.1:8000/token', {
+      const response = await fetchWithAuth('/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -212,7 +212,7 @@ const handleToggleCopilot = () => {
   const handleUseSuggestion = async (suggestionId, suggestionText, suggestionField) => {
     // 1. CHAMA O ENDPOINT REAL DE ENVIO (Evolution API via backend)
     try {
-        const response = await fetch('http://127.0.0.1:8000/send_seller_message', {
+            const response = await fetch(`/send_seller_message`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -262,7 +262,7 @@ const handleToggleCopilot = () => {
     setIsLoading(true);
     setError('');
     try {
-      const response = await fetch('http://127.0.0.1:8000/conversations/start_new', {
+        const response = await fetch(`/conversations/start_new`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -297,7 +297,7 @@ const handleToggleCopilot = () => {
 
 
     try {
-      const response = await fetchWithAuth('http://127.0.0.1:8000/generate_response', {
+        const response = await fetchWithAuth('/generate_response', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: query, conversation_id: activeConversationId, current_stage_id: currentStage }),
@@ -345,8 +345,7 @@ const handleToggleCopilot = () => {
     setError('');
     const currentStage = stagesByConvo[activeConversationId] || null;
     try {
-        const response = await fetchWithAuth('http://127.0.0.1:8000/generate_response', {
-            method: 'POST',
+const response = await fetchWithAuth('/generate_response', {            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ query: privateQuery, conversation_id: activeConversationId, current_stage_id: currentStage, is_private_query: true }),
         });
@@ -395,9 +394,9 @@ const handleConversationSelect = useCallback(async (convoId) => {
     // APENAS NOTIFICA O BACKEND. A UI será atualizada pelo próximo polling.
     try {
       console.log(`[handleConversationSelect] Notificando backend /mark-read...`);
-      await fetchWithAuth(`http://127.0.0.1:8000/conversations/${encodeURIComponent(stringConvoId)}/mark-read`, {
-          method: 'POST',
-      });
+      await fetchWithAuth(`/conversations/${encodeURIComponent(stringConvoId)}/mark-read`, {
+    method: 'POST',
+});
       console.log(`[Frontend] Notificado backend sobre leitura da conversa ${stringConvoId}.`);
       // FORÇAR ATUALIZAÇÃO (Opcional, se o polling demorar muito):
       // fetchConversations();

@@ -1,0 +1,23 @@
+# Arquivos de cache e temporários
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Pastas de ambientes virtuais
+.venv/
+venv/
+env/
+
+# Repositórios e caches de controle de versão
+.git/
+.gitignore
+
+# Arquivos de log e temporários de pacotes
+pip-log.txt
+*.log
+*.tmp
+
+# Qualquer pasta grande que não seja necessária para o build
+videos/
+chroma_db_local/
