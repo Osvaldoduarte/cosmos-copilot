@@ -170,7 +170,11 @@ return (
       </div>
 
 <div className="chat-history-active" ref={chatContainerRef} onScroll={handleScroll}>
-        {activeConversation.messages.map((msg, index) => {
+        {/* AQUI ESTÁ A CORREÇÃO:
+          Adicionamos "activeConversation.messages &&"
+          Isso garante que o .map() SÓ será executado se o array de mensagens existir.
+        */}
+        {activeConversation.messages && activeConversation.messages.map((msg, index) => {
           const isYoutube = isYouTubeLink(msg.text);
           const isDraggable = msg.sender === 'cliente';
 

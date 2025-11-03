@@ -167,32 +167,51 @@ const fetchConversations = useCallback(async () => {
     };
   }, []);
 
-  const handleLogin = async (username, password) => {
+const handleLogin = async (username, password) => {
     setIsLoginLoading(true);
     setLoginError('');
+
     try {
-      const response = await fetchWithAuth('/token', {
+      // 1. Mudamos de FormData para URLSearchParams
+      const body = new URLSearchParams();
+      body.append('username', username);
+      body.append('password', password);
+
+      // 2. Usamos a variável de ambiente (do seu .env.production)
+      // Note que o nome da sua variável é REACT_APP_API_URL
+      const response = await fetch(`${API_BASE_URL}/token`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          'username': username,
-          'password': password
-        })
+        headers: {
+            // 3. Adicionamos o Content-Type que o FastAPI espera
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: body,
       });
 
       if (!response.ok) {
-        throw new Error('Usuário ou senha inválidos.');
+        const errorData = await response.json().catch(() => null);
+        if (response.status === 400 || response.status === 401) {
+          setLoginError('Usuário ou senha inválidos.');
+        } else if (errorData && errorData.detail) {
+           setLoginError(`Erro: ${errorData.detail}`);
+        }
+         else {
+          setLoginError(`Erro: ${response.status} - ${response.statusText}`);
+        }
+        setIsLoginLoading(false);
+        return;
       }
 
       const data = await response.json();
-      const authToken = data.access_token;
+      localStorage.setItem('authToken', data.access_token); // Salva o token
+      setToken(data.access_token);
+      setLoginError('');
+      setIsLoginLoading(false);
 
-      localStorage.setItem('authToken', authToken); // Salva o token no navegador
-      setToken(authToken); // Atualiza o estado para mostrar a aplicação
-
-    } catch (err) {
-      setLoginError(err.message);
-    } finally {
+    } catch (error) {
+      console.error('Falha no login:', error);
+      // Este é o erro "failed to fetch" que você estava vendo
+      setLoginError('Falha ao conectar com o servidor. Verifique a rede.');
       setIsLoginLoading(false);
     }
   };

@@ -62,7 +62,7 @@ STATE_LOCK = asyncio.Lock()
 CONVERSATION_STATE_STORE: Dict[str, Any] = {}
 
 manager = ConnectionManager()
-env_path = Path(__file__).parent.parent / ".env"
+env_path = Path(__file__).parent.parent / ".env.production"
 
 load_dotenv(dotenv_path=env_path)
 EVO_URL = os.getenv("EVOLUTION_API_URL")
@@ -327,7 +327,6 @@ origins = [
     "http://localhost:5173",  # Vite dev
     "https://gen-lang-client-0750608840.web.app",
     "https://gen-lang-client-0750608840.firebaseapp.com",
-    # Adicione também o domínio customizado se tiver
 ]
 
 

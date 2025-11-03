@@ -30,10 +30,16 @@ DATA_DIR = BACKEND_DIR / "data"
 CHROMA_PATH = str(BACKEND_DIR / "chroma_db_local")
 CHROMA_CONVERSAS_PATH = str(BACKEND_DIR / "chroma_db_conversas")
 PLAYBOOK_PATH = str(DATA_DIR / "playbook_vendas.json")
-GEMINI_MODEL_NAME = "gemini-2.5-flash"
+GEMINI_MODEL_NAME = "gemini-2.5-flash-lite"
 
-# Carrega as variáveis de ambiente (do arquivo .env.local)
-load_dotenv()
+env_path = BACKEND_DIR / ".env"
+
+# Carrega as variáveis de ambiente a partir desse caminho
+load_dotenv(dotenv_path=env_path)
+
+# Verifica se o arquivo foi realmente carregado (opcional, para debug)
+if not os.environ.get("GEMINI_API_KEY"):
+    print(f"ALERTA: Não foi possível carregar as variáveis do arquivo: {env_path}")
 
 # --- NOVA LÓGICA DE CONEXÃO AO CHROMA DB ---
 CHROMA_HOST = os.environ.get("CHROMA_HOST")

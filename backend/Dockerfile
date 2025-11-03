@@ -1,9 +1,12 @@
+# Use a imagem slim do Python 3.11
 FROM python:3.11-slim
 WORKDIR /app
 
-# Instala Git e pacotes essenciais para dependências complexas (como pytube)
+# --- CORREÇÃO ---
+# Instala git E as ferramentas de build (build-essential, python3-dev)
+# necessárias para compilar dependências como bcrypt.
 RUN apt-get update && \
-    apt-get install -y git && \
+    apt-get install -y git build-essential python3-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Copia e instala as dependências.

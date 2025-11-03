@@ -1,0 +1,2517 @@
+diff --git a/README.md b/README.md
+index 9e2539b..52d4e08 100644
+--- a/README.md
++++ b/README.md
+@@ -26,7 +26,7 @@ Siga estes passos para configurar o projeto na sua máquina local.
+     cd backend
+     python -m venv .venv
+     source .venv/bin/activate  # No Windows: .venv\Scripts\activate
+-    pip install -r requirements.txt
++    pip install -r requirements-backend.txt
+     ```
+
+ 3.  **Configure o Frontend (React)**
+diff --git a/backend/.gcloudignore b/backend/.gcloudignore
+new file mode 100644
+index 0000000..a96dcef
+--- /dev/null
++++ b/backend/.gcloudignore
+@@ -0,0 +1,23 @@
++# Arquivos de cache e temporários
++__pycache__
++*.pyc
++*.pyo
++*.pyd
++
++# Pastas de ambientes virtuais
++.venv/
++venv/
++env/
++
++# Repositórios e caches de controle de versão
++.git/
++.gitignore
++
++# Arquivos de log e temporários de pacotes
++pip-log.txt
++*.log
++*.tmp
++
++# Qualquer pasta grande que não seja necessária para o build
++videos/
++chroma_db_local/
+\ No newline at end of file
+diff --git a/backend/Dockerfile b/backend/Dockerfile
+new file mode 100644
+index 0000000..d7491fa
+--- /dev/null
++++ b/backend/Dockerfile
+@@ -0,0 +1,18 @@
++FROM python:3.11-slim
++WORKDIR /app
++
++# Instala Git e pacotes essenciais para dependências complexas (como pytube)
++RUN apt-get update && \
++    apt-get install -y git && \
++    rm -rf /var/lib/apt/lists/*
++
++# Copia e instala as dependências.
++COPY requirements-backend.txt .
++RUN pip install -r requirements-backend.txt
++
++# Copia o código-fonte restante
++COPY . .
++
++# O Cloud Run espera que o app rode na porta 8080 por padrão
++EXPOSE 8080
++CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+\ No newline at end of file
+diff --git a/backend/a.py b/backend/a.py
+new file mode 100644
+index 0000000..58132e9
+--- /dev/null
++++ b/backend/a.py
+@@ -0,0 +1,182 @@
++"""
++🧪 Script de Teste - VENAI Backend
++Valida as correções antes do deploy
++"""
++
++import sys
++import importlib.util
++
++print("🧪 Iniciando validação das correções...\n")
++
++# ==============================================================================
++# TESTE 1: Validar NumPy
++# ==============================================================================
++print("1️⃣ Validando versão do NumPy...")
++try:
++    import numpy as np
++
++    version = np.__version__
++    major_version = int(version.split('.')[0])
++
++    if major_version < 2:
++        print(f"   ✅ NumPy {version} (compatível com ChromaDB)")
++    else:
++        print(f"   ❌ NumPy {version} - INCOMPATÍVEL!")
++        print("   Execute: pip install numpy==1.26.4")
++        sys.exit(1)
++except ImportError:
++    print("   ❌ NumPy não instalado!")
++    sys.exit(1)
++
++# ==============================================================================
++# TESTE 2: Validar bcrypt
++# ==============================================================================
++print("\n2️⃣ Validando bcrypt nativo...")
++try:
++    import bcrypt
++
++    # Teste rápido de hash e verificação
++    test_password = "teste123"
++    test_bytes = test_password[:72].encode('utf-8')
++    salt = bcrypt.gensalt(rounds=12)
++    test_hash = bcrypt.hashpw(test_bytes, salt)
++
++    # Verifica se a validação funciona
++    is_valid = bcrypt.checkpw(test_bytes, test_hash)
++
++    if is_valid:
++        print(f"   ✅ bcrypt funcionando corretamente")
++        print(f"   Hash de teste gerado: {test_hash[:30].decode('utf-8')}...")
++    else:
++        print("   ❌ bcrypt não está validando corretamente!")
++        sys.exit(1)
++
++except ImportError:
++    print("   ❌ bcrypt não instalado!")
++    sys.exit(1)
++except Exception as e:
++    print(f"   ❌ Erro ao testar bcrypt: {e}")
++    sys.exit(1)
++
++# ==============================================================================
++# TESTE 3: Validar ChromaDB
++# ==============================================================================
++print("\n3️⃣ Validando ChromaDB...")
++try:
++    import chromadb
++
++    print(f"   ✅ ChromaDB {chromadb.__version__} importado com sucesso")
++except ImportError as e:
++    print(f"   ❌ Erro ao importar ChromaDB: {e}")
++    print("   Execute: pip install chromadb==0.4.24")
++    sys.exit(1)
++
++# ==============================================================================
++# TESTE 4: Validar security.py
++# ==============================================================================
++print("\n4️⃣ Validando security.py...")
++try:
++    # Tenta importar o módulo core.security
++    spec = importlib.util.spec_from_file_location("security", "./core/security.py")
++    if spec and spec.loader:
++        security = importlib.util.module_from_spec(spec)
++        spec.loader.exec_module(security)
++
++        # Testa as funções
++        test_pwd = "senha123"
++        test_hash = security.get_password_hash(test_pwd)
++
++        print(f"   ✅ get_password_hash() funcionando")
++        print(f"   Hash gerado: {test_hash[:30]}...")
++
++        # Testa verificação
++        is_correct = security.verify_password(test_pwd, test_hash)
++        is_wrong = security.verify_password("senhaErrada", test_hash)
++
++        if is_correct and not is_wrong:
++            print(f"   ✅ verify_password() funcionando corretamente")
++        else:
++            print(f"   ❌ verify_password() não está funcionando!")
++            sys.exit(1)
++
++    else:
++        print("   ❌ Não foi possível carregar security.py")
++        sys.exit(1)
++
++except FileNotFoundError:
++    print("   ⚠️ security.py não encontrado (talvez você não esteja no diretório correto)")
++except Exception as e:
++    print(f"   ❌ Erro ao validar security.py: {e}")
++    import traceback
++
++    traceback.print_exc()
++    sys.exit(1)
++
++# ==============================================================================
++# TESTE 5: Validar dependências essenciais
++# ==============================================================================
++print("\n5️⃣ Validando dependências essenciais...")
++required_packages = {
++    "fastapi": "0.118.0",
++    "httpx": "0.28.1",
++    "langchain": "0.3.27",
++    "jose": None,  # python-jose
++}
++
++all_ok = True
++for package, expected_version in required_packages.items():
++    try:
++        if package == "jose":
++            import jose
++
++            print(f"   ✅ python-jose instalado")
++        else:
++            mod = __import__(package)
++            version = getattr(mod, '__version__', 'desconhecida')
++            print(f"   ✅ {package} {version}")
++    except ImportError:
++        print(f"   ❌ {package} NÃO instalado!")
++        all_ok = False
++
++if not all_ok:
++    print("\n   Execute: pip install -r requirements-backend.txt")
++    sys.exit(1)
++
++# ==============================================================================
++# TESTE 6: Gerar hashes para database.py
++# ==============================================================================
++print("\n6️⃣ Gerando novos hashes para database.py...")
++try:
++    import bcrypt
++
++    senhas = {
++        "vendedor1": "senha123",
++        "vendedor2": "senha456"
++    }
++
++    print("\n   📋 Cole estes hashes no seu database.py:")
++    print("   " + "=" * 60)
++
++    for user, pwd in senhas.items():
++        pwd_bytes = pwd[:72].encode('utf-8')
++        salt = bcrypt.gensalt(rounds=12)
++        hash_final = bcrypt.hashpw(pwd_bytes, salt).decode('utf-8')
++
++        print(f'''
++    "{user}": {{
++        "username": "{user}",
++        "hashed_password": "{hash_final}",
++        ...
++    }},''')
++
++    print("   " + "=" * 60)
++
++except Exception as e:
++    print(f"   ⚠️ Não foi possível gerar hashes: {e}")
++
++# ==============================================================================
++# RESUMO
++# ==============================================================================
++print("\n" + "=" * 70)
++print("✅ TODAS AS VALIDAÇÕES PASSARAM!")
++print("=" * 70)
+diff --git a/backend/build_index.py b/backend/build_index.py
+new file mode 100644
+index 0000000..446c849
+--- /dev/null
++++ b/backend/build_index.py
+@@ -0,0 +1,87 @@
++# build_index.py
++import pickle
++import os
++from pathlib import Path
++from dotenv import load_dotenv
++
++import chromadb
++from langchain_community.retrievers import BM25Retriever
++from langchain_community.vectorstores import Chroma
++from langchain.docstore.document import Document
++from langchain_google_genai import GoogleGenerativeAIEmbeddings
++
++from core import cerebro_ia # Reutiliza sua função de inicialização
++
++# Carrega variáveis de ambiente (CHROMA_HOST, GEMINI_API_KEY, etc)
++env_path = Path(__file__).parent / ".env"
++load_dotenv(dotenv_path=env_path)
++
++CHROMA_PATH = str(Path(__file__).parent / "chroma_db_local")
++OUTPUT_FILE = "bm25_retriever.pkl"
++
++def build_and_save_index():
++    """
++    Conecta ao ChromaDB, baixa todos os documentos,
++    cria o BM25Retriever e o salva em um arquivo pickle.
++    """
++    print("INFO: Iniciando o processo de build do índice...")
++
++    try:
++        # 1. Inicializa o cliente Chroma
++        print(f"INFO: Conectando ao ChromaDB em {os.getenv('CHROMA_HOST')}...")
++        chroma_client = cerebro_ia.initialize_chroma_client()
++        if not chroma_client:
++            print("ERRO: Falha ao inicializar o cliente ChromaDB.")
++            return
++
++        api_key = os.getenv("GEMINI_API_KEY")
++        embeddings_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
++
++        COLLECTION_NAME = "evolution"  # O nome da coleção no servidor remoto
++        print(f"INFO: Acessando a coleção remota '{COLLECTION_NAME}'...")
++
++        # Inicialização correta para cliente remoto via LangChain Chroma:
++        db_tecnico = Chroma(
++            client=chroma_client,  # Usa o cliente remoto já conectado
++            collection_name=COLLECTION_NAME,  # Especifica o nome da coleção remota
++            embedding_function=embeddings_model
++        )
++        # --- FIM DA CORREÇÃO ---
++
++        # 3. Baixa TODOS os documentos (Agora do servidor remoto, da coleção 'evolution')
++        print("INFO: Baixando todos os documentos do ChromaDB remoto... (Isso pode demorar)")
++        # A linha abaixo agora funcionará corretamente
++        all_docs = db_tecnico.get(include=["metadatas", "documents"])
++
++        # 3. Baixa TODOS os documentos (A parte LENTA)
++        print("INFO: Baixando todos os documentos do ChromaDB... (Isso pode demorar)")
++        all_docs = db_tecnico.get(include=["metadatas", "documents"])
++        docs_list = [
++            Document(page_content=doc, metadata=meta)
++            for doc, meta in zip(all_docs['documents'], all_docs['metadatas'])
++        ]
++        print(f"INFO: {len(docs_list)} documentos baixados.")
++
++        if not docs_list:
++            print("ERRO: O Banco de Dados Técnico (Chroma DB) está vazio.")
++            return
++
++        # 4. Cria o índice BM25 (A outra parte LENTA)
++        print("INFO: Criando o índice BM25Retriever a partir dos documentos...")
++        keyword_retriever = BM25Retriever.from_documents(docs_list)
++        keyword_retriever.k = 3 # Garante que o k seja salvo no objeto
++        print("INFO: Índice BM25 criado com sucesso.")
++
++        # 5. Salva o objeto em um arquivo .pkl
++        with open(OUTPUT_FILE, "wb") as f:
++            pickle.dump(keyword_retriever, f)
++
++        print("\n" + "="*30)
++        print(f"✅ SUCESSO! Índice salvo em: {OUTPUT_FILE}")
++        print("="*30)
++
++    except Exception as e:
++        print(f"❌ ERRO CRÍTICO durante o build: {e}")
++
++if __name__ == "__main__":
++    build_and_save_index()
+\ No newline at end of file
+diff --git a/backend/cloudbuild-pipeline.yaml b/backend/cloudbuild-pipeline.yaml
+new file mode 100644
+index 0000000..67ec09a
+--- /dev/null
++++ b/backend/cloudbuild-pipeline.yaml
+@@ -0,0 +1,25 @@
++steps:
++# --- NOVO PASSO DE DEBUG ---
++- name: 'ubuntu' # Usa uma imagem simples com 'cat'
++  entrypoint: 'bash'
++  args:
++    - '-c'
++    - |
++      echo "--- Conteúdo de scripts/gerenciar_pipeline.py no contexto do build ---"
++      cat scripts/gerenciar_pipeline.py || echo "ERRO: Não foi possível ler scripts/gerenciar_pipeline.py"
++      echo "---------------------------------------------------------------------"
++# --- FIM DO PASSO DE DEBUG ---
++
++# Passo original do Docker build
++- name: 'gcr.io/cloud-builders/docker'
++  args: [
++          'build',
++          '--no-cache',
++          '-t',
++          'gcr.io/$PROJECT_ID/cosmos-pipeline',
++          '-f',
++          'scripts/Dockerfile.pipeline',
++          '.'
++        ]
++images:
++- 'gcr.io/$PROJECT_ID/cosmos-pipeline'
+\ No newline at end of file
+diff --git a/backend/core/cerebro_ia.py b/backend/core/cerebro_ia.py
+index f3ac667..acba91a 100644
+--- a/backend/core/cerebro_ia.py
++++ b/backend/core/cerebro_ia.py
+@@ -4,19 +4,26 @@ import chromadb
+ from typing import Dict, Any, List, Optional
+ from pathlib import Path
+ from dotenv import load_dotenv
++from urllib.parse import urlparse
++import traceback
+
+ from langchain.docstore.document import Document
+ from langchain.prompts import ChatPromptTemplate
+-from langchain.retrievers import BM25Retriever, EnsembleRetriever
++from langchain_community.retrievers import BM25Retriever # Corrigido conforme aviso
++from langchain.retrievers import EnsembleRetriever
+ from langchain_community.vectorstores import Chroma
+ from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
+ from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+-from langchain_core.pydantic_v1 import BaseModel, Field
++from pydantic import BaseModel, Field
++
++from chromadb.config import Settings
+
+ from thefuzz import fuzz
+
+
+ # --- CONFIGURAÇÕES GLOBAIS ---
++
++CHROMA_CLIENT = None
+ CORE_DIR = Path(__file__).parent.resolve()
+ BACKEND_DIR = CORE_DIR.parent.resolve()
+ DATA_DIR = BACKEND_DIR / "data"
+@@ -44,22 +51,126 @@ def print_info(msg): print(f"{Colors.BLUE}ℹ️  {msg}{Colors.END}")
+ def print_success(msg): print(f"{Colors.GREEN}✅ {msg}{Colors.END}")
+ def print_warning(msg): print(f"{Colors.YELLOW}⚠️  {msg}{Colors.END}")
+
++
++def initialize_chroma_client():
++    """Inicializa e armazena o cliente ChromaDB HttpClient para v1.2.2."""
++    global CHROMA_CLIENT
++    CHROMA_URL = os.environ.get("CHROMA_HOST") # URL completa: https://...
++
++    if CHROMA_CLIENT is None and CHROMA_URL:
++        print_info(f"Conectando ao ChromaDB v1.2.2 em {CHROMA_URL}")
++        try:
++            # Extrai apenas o host da URL para o parâmetro 'host'
++            parsed_url = urlparse(CHROMA_URL)
++            host_name = parsed_url.netloc # Ex: chroma-server-....run.app (sem https://)
++            ssl_enabled = parsed_url.scheme == 'https'
++
++            if not host_name:
++                 raise ValueError("Não foi possível extrair o hostname da CHROMA_HOST URL.")
++
++            print_info(f"Usando HttpClient com host='{host_name}', ssl={ssl_enabled}")
++
++            # Para ChromaDB v1.x, HttpClient usa host (sem https://) e ssl
++            CHROMA_CLIENT = chromadb.HttpClient(
++                host=host_name,
++                ssl=ssl_enabled
++                # port=443 # Omitir a porta é o padrão para ssl=True
++            )
++            print_info("Testando conexão com heartbeat...")
++            CHROMA_CLIENT.heartbeat()
++            print_success("ChromaDB Cliente v1.2.2 conectado com sucesso!")
++
++        except Exception as e:
++            print_error(f"Falha na conexão ChromaDB v1.2.2: {e}")
++            traceback.print_exc()
++            return None
++    return CHROMA_CLIENT
++
++
++def load_models(chroma_client_instance) -> tuple:  # Recebe a instância conectada
++    """Carrega modelos e inicializa retrievers para v1.2.2 (Substitui AMBAS as versões antigas)"""
++    load_dotenv()
++    api_key = os.environ.get("GEMINI_API_KEY")
++    if not api_key: raise ValueError("ERRO: Chave GEMINI_API_KEY não configurada.")
++
++    llm = ChatGoogleGenerativeAI(
++        model=GEMINI_MODEL_NAME,
++        google_api_key=api_key,
++        temperature=0.1
++    )
++
++    embeddings_model_langchain = GoogleGenerativeAIEmbeddings(
++        model="models/text-embedding-004",
++        google_api_key=api_key
++    )
++
++    COLLECTION_NAME = "evolution"
++
++    # Conecta à collection remota usando LangChain Chroma wrapper e o HttpClient
++    print_info(f"Conectando LangChain Chroma à collection '{COLLECTION_NAME}'...")
++    try:
++        # Passa o cliente HttpClient já conectado
++        db_tecnico = Chroma(
++            client=chroma_client_instance,  # USA O CLIENTE JÁ CONECTADO!
++            collection_name=COLLECTION_NAME,
++            embedding_function=embeddings_model_langchain  # Langchain usa sua própria func
++        )
++
++        # Acessa a coleção nativa subjacente para operações
++        native_collection = db_tecnico._collection
++
++        count = native_collection.count()
++        print_success(f"Conectado à collection '{COLLECTION_NAME}'. Documentos encontrados: {count}")
++
++        if count == 0:
++            raise FileNotFoundError(
++                "ERRO: Banco de Dados Técnico (ChromaDB) está vazio. Execute o pipeline de ingestão.")
++
++    except Exception as e:
++        print_error(f"Erro ao conectar LangChain Chroma à collection: {e}")
++        traceback.print_exc()
++        raise
++
++    # Inicializa retrievers
++    print_info("Preparando retrievers para Busca Híbrida...")
++
++    # Busca os documentos usando o método nativo (mais confiável)
++    all_docs_resp = native_collection.get(include=["metadatas", "documents"])
++
++    if not all_docs_resp or not all_docs_resp.get('documents'):
++        raise FileNotFoundError("ERRO: Falha ao buscar documentos da coleção remota.")
++
++    docs_list = [
++        Document(page_content=doc, metadata=meta or {})  # Garante que metadata não seja None
++        for doc, meta in zip(all_docs_resp['documents'], all_docs_resp['metadatas'])
++    ]
++    print(f"INFO: {len(docs_list)} documentos baixados para o BM25.")
++
++    keyword_retriever = BM25Retriever.from_documents(docs_list)
++    keyword_retriever.k = 3
++
++    vector_retriever = db_tecnico.as_retriever(search_kwargs={"k": 3})
++
++    ensemble_retriever = EnsembleRetriever(
++        retrievers=[keyword_retriever, vector_retriever],
++        weights=[0.5, 0.5]
++    )
++    print_success("Retriever Híbrido criado")
++
++    # Carrega playbook
++    if not Path(PLAYBOOK_PATH).exists():
++        raise FileNotFoundError(f"Playbook não encontrado em {PLAYBOOK_PATH}")
++    with open(PLAYBOOK_PATH, 'r', encoding='utf-8') as f:
++        playbook = json.load(f)
++
++    print_success("LLM, Embedding, DB Técnico e Playbook carregados")
++    return llm, ensemble_retriever, embeddings_model_langchain, playbook
+ if not api_key:
+     raise ValueError("A variável de ambiente GEMINI_API_KEY não foi definida.")
+
+ # Inicializa o modelo de embeddings que será usado em ambos os casos
+ embeddings_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
+
+-if CHROMA_HOST:
+-    print("✅ Conectando ao banco de dados ChromaDB remoto no Cloud Run...")
+-    # Se a variável CHROMA_HOST existe, conecta-se ao servidor na nuvem
+-    # O port 443 e ssl=True são para conexões HTTPS seguras
+-    chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=443, ssl=True)
+-else:
+-    print("ℹ️  Usando banco de dados ChromaDB local. (Para deploy, configure CHROMA_HOST)")
+-    # Se não, continua usando o banco de dados da pasta local
+-    CHROMA_PATH = str(Path(__file__).parent.parent / "chroma_db_local")
+-    chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+
+ # --- DEFINIÇÃO DA ESTRUTURA DE SAÍDA ---
+ class StageTransitionDecision(BaseModel):
+@@ -360,7 +471,7 @@ def get_dynamic_conversation_context(
+
+ # --- FUNÇÕES PRINCIPAIS ---
+
+-def load_models() -> tuple:
++def load_models(chroma_client) -> tuple:
+     load_dotenv()
+     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+     if not api_key: raise ValueError("ERRO: Chave GEMINI_API_KEY não configurada.")
+@@ -369,7 +480,7 @@ def load_models() -> tuple:
+     embeddings_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
+
+     if not Path(CHROMA_PATH).exists(): raise FileNotFoundError(f"ERRO: DB Técnico não encontrado em {CHROMA_PATH}.")
+-    db_tecnico = Chroma(persist_directory=CHROMA_PATH, embedding_function=embeddings_model)
++    db_tecnico = Chroma(client=chroma_client, embedding_function=embeddings_model)
+
+     print("INFO: Preparando retrievers para a Busca Híbrida...")
+     # 1. Pega todos os documentos do nosso banco de dados técnico para a busca por palavra-chave.
+diff --git a/backend/core/database.py b/backend/core/database.py
+index 4e28467..6a1433e 100644
+--- a/backend/core/database.py
++++ b/backend/core/database.py
+@@ -9,14 +9,14 @@ users_db: Dict[str, Dict] = {
+     "vendedor1": {
+         "username": "vendedor1",
+         "full_name": "João Silva",
+-        "hashed_password": "$2b$12$HORoqPvMQc/vN/NxDQ8d/uTfhqgPgZ/X1dmNkuLTkIUTk2A.xZvq2", # Hash para "senha123"
++        "hashed_password": "$2b$12$Bao0p1l64yZPJR.vRqne4OK9P6PQQOlUAs/8RSazEw71zlg..wpq.",
+         "disabled": False,
+         "tenant_id": "cosmoserp"
+     },
+     "vendedor2": {
+         "username": "vendedor2",
+         "full_name": "Maria Souza",
+-        "hashed_password": "$2b$12$3P7jZNBp6vxWTBqZXUIsEeiTnqdQYq4zMo0Z4wnzlbmE4mjYzFoBW", # Hash para "senha456" (exemplo)
++        "hashed_password": "$2b$12$hyPmv9uQlcSsbuGLG3LDP.WHYe3sMi0IzwV0smTjHM2QucQjZO20q",
+         "disabled": False,
+         "tenant_id": "cosmoserp"
+     }
+diff --git a/backend/core/security.py b/backend/core/security.py
+index a7449e0..87390ec 100644
+--- a/backend/core/security.py
++++ b/backend/core/security.py
+@@ -1,17 +1,41 @@
+-from passlib.context import CryptContext
++import bcrypt
+
+-# Cria um contexto para o hashing, especificando que usaremos o algoritmo bcrypt.
+-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+ def verify_password(plain_password: str, hashed_password: str) -> bool:
+     """
+-    Verifica se uma senha em texto plano corresponde a um hash.
++    Verifica se uma senha em texto plano corresponde a um hash usando bcrypt.
+     Retorna True se corresponder, False caso contrário.
++
++    ✅ CORRIGIDO: Usando bcrypt nativo para evitar problemas de compatibilidade
+     """
+-    return pwd_context.verify(plain_password, hashed_password)
++    try:
++        # Trunca para 72 bytes (limite do bcrypt) e codifica
++        plain_password_bytes = plain_password[:72].encode('utf-8')
++        hashed_password_bytes = hashed_password.encode('utf-8')
++
++        # Compara usando bcrypt nativo
++        return bcrypt.checkpw(plain_password_bytes, hashed_password_bytes)
++    except Exception as e:
++        print(f"❌ Erro ao verificar senha: {e}")
++        return False
++
+
+ def get_password_hash(password: str) -> str:
+     """
+     Cria um hash bcrypt a partir de uma senha em texto plano.
++
++    ✅ CORRIGIDO: Usando bcrypt nativo
+     """
+-    return pwd_context.hash(password)
+\ No newline at end of file
++    try:
++        # Trunca para 72 bytes e codifica
++        password_bytes = password[:72].encode('utf-8')
++
++        # Gera o salt e cria o hash usando bcrypt nativo
++        salt = bcrypt.gensalt(rounds=12)
++        hashed_bytes = bcrypt.hashpw(password_bytes, salt)
++
++        # Decodifica para string
++        return hashed_bytes.decode('utf-8')
++    except Exception as e:
++        print(f"❌ Erro ao gerar hash: {e}")
++        raise
+\ No newline at end of file
+diff --git a/backend/main.py b/backend/main.py
+index b9c9e24..25df9b2 100644
+--- a/backend/main.py
++++ b/backend/main.py
+@@ -68,6 +68,12 @@ load_dotenv(dotenv_path=env_path)
+ EVO_URL = os.getenv("EVOLUTION_API_URL")
+ EVO_INSTANCE = os.getenv("EVOLUTION_INSTANCE_NAME")
+
++GLOBAL_MODELS = {
++    "llm": None,
++    "retriever": None,
++    "embeddings_model": None,
++    "playbook": None
++}
+
+ # --- 1. Inicialização da Aplicação e Carregamento dos Modelos ---
+
+@@ -134,6 +140,7 @@ def authenticate_user(username: str, password: str) -> Optional[User]:
+         return User(**user_data)
+
+
++
+ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+     """
+     Cria um novo token de acesso (JWT).
+@@ -150,6 +157,55 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
+
+
+ # --- Endpoint de Login ---
++@app.on_event("startup")
++async def startup_event():
++    """
++    ✅ CORRIGIDO: Tratamento robusto de erros de conexão
++    """
++    print_info("🚀 Iniciando servidor backend...")
++
++    global GLOBAL_MODELS
++
++    print_warning("=====================================================")
++    print_warning("⚠️ MODO CHAT ATIVADO: Inicialização da IA desabilitada.")
++    print_warning("=====================================================")
++
++    # try:
++    #     # Tenta conectar ao ChromaDB
++    #     print_info("📡 Tentando conectar ao ChromaDB...")
++    #     chroma_client = cerebro_ia.initialize_chroma_client()
++    #
++    #     if chroma_client:
++    #         try:
++    #             # Carrega os modelos de IA
++    #             print_info("🤖 Carregando modelos de IA...")
++    #             llm, ensemble_retriever, embeddings_model, playbook = cerebro_ia.load_models(chroma_client)
++    #
++    #             GLOBAL_MODELS["llm"] = llm
++    #             GLOBAL_MODELS["retriever"] = ensemble_retriever
++    #             GLOBAL_MODELS["embeddings_model"] = embeddings_model
++    #             GLOBAL_MODELS["playbook"] = playbook
++    #
++    #             print_success("✅ ChromaDB e modelos de IA carregados com sucesso!")
++    #         except Exception as model_error:
++    #             print_error(f"❌ Erro ao carregar modelos: {model_error}")
++    #             print_warning("⚠️ Servidor iniciando SEM recursos de IA")
++    #     else:
++    #         print_warning("⚠️ ChromaDB indisponível. Servidor iniciando SEM recursos de IA")
++    #
++    # except Exception as e:
++    #     print_error(f"❌ ERRO no startup: {e}")
++    #     print_warning("⚠️ Servidor iniciando em modo degradado")
++
++    # ✅ Sincronização com Evolution API em background (não bloqueia o servidor)
++    try:
++        print_info("📞 Agendando sincronização com Evolution API...")
++        asyncio.create_task(load_history_from_evolution_api())
++    except Exception as sync_error:
++        print_error(f"❌ Erro ao agendar sincronização: {sync_error}")
++        print_warning("⚠️ Sincronização desabilitada")
++
++
+ @app.post("/token", response_model=Token)
+ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+     """
+@@ -257,23 +313,31 @@ async def mark_conversation_as_read(jid: str, current_user: User = Depends(get_c
+
+ # --- GATILHO DE INICIALIZAÇÃO ---
+
+-@app.on_event("startup")
+-async def on_startup():
+-    # A sincronização agora roda como uma tarefa em segundo plano
+-    # para não bloquear a inicialização do servidor.
+-    asyncio.create_task(load_history_from_evolution_api())
++# @app.on_event("startup")
++# async def on_startup():
++#     # A sincronização agora roda como uma tarefa em segundo plano
++#     # para não bloquear a inicialização do servidor.
++#     cerebro_ia.initialize_chroma_client()
++#     asyncio.create_task(load_history_from_evolution_api())
+ # ... (o resto do seu código, como a configuração do CORS, continua aqui)
+ # Configuração de CORS
+
+-origins = ["http://localhost:3000"]
++origins = [
++    "http://localhost:3000",
++    "http://localhost:5173",  # Vite dev
++    "https://gen-lang-client-0750608840.web.app",
++    "https://gen-lang-client-0750608840.firebaseapp.com",
++    # Adicione também o domínio customizado se tiver
++]
+
+
+ app.add_middleware(
+     CORSMiddleware,
+-    allow_origins=origins,
++    allow_origins=origins,  # ✅ Lista explícita de origens permitidas
+     allow_credentials=True,
+-    allow_methods=["*"],
+-    allow_headers=["*"],
++    allow_methods=["*"],  # Permite todos os métodos HTTP
++    allow_headers=["*"],  # Permite todos os headers
++    expose_headers=["*"],  # Expõe todos os headers na resposta
+ )
+
+ def find_existing_conversation_jid(jid: str) -> str | None:
+@@ -485,11 +549,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str, token:
+     except WebSocketDisconnect:
+         manager.disconnect(conversation_id)
+
+-# Carrega todos os modelos e o playbook.
+-
+-llm, ensemble_retriever, embeddings_model, playbook = cerebro_ia.load_models()
+
+-print("✅ Modelos e playbook carregados. Servidor pronto.")
+ # --- Armazenamento Temporário de Conversas e Sugestões (Estado Global) ---
+
+
+@@ -548,7 +608,7 @@ async def process_and_broadcast_message(conversation_id: str, message_obj: Dict[
+             # Garante que a conversa exista na memória
+             if conversation_id not in CONVERSATION_STATE_STORE:
+                 CONVERSATION_STATE_STORE[conversation_id] = {
+-                    "name": conversation_id.split('@')[0], "messages": [], "stage_id": playbook["initial_stage"],
++                    "name": conversation_id.split('@')[0], "messages": [], "stage_id": GLOBAL_MODELS["playbook"]["initial_stage"],
+                     "suggestions": [], "dados_cliente": {}, "unread": False, "unreadCount": 0, "lastUpdated": 0
+                 }
+                 # Garante que unreadCount exista se a conversa já existia antes
+@@ -602,7 +662,10 @@ async def send_seller_message_route(request: MessageSendRequest, background_task
+         }
+
+         # Indexar no RAG
+-        conversation_db = cerebro_ia.get_or_create_conversation_db(request.conversation_id, embeddings_model)
++        conversation_db = cerebro_ia.get_or_create_conversation_db(
++            request.conversation_id,
++            GLOBAL_MODELS["embeddings_model"]
++        )
+         cerebro_ia.add_message_to_conversation_rag(conversation_db, request.conversation_id, message_obj)
+
+         # Atualizar o estado global
+@@ -651,6 +714,13 @@ async def get_all_conversations(current_user: User = Depends(get_current_active_
+ @app.post("/generate_response")
+ async def generate_response(request: SuggestionRequest, current_user: User = Depends(get_current_active_user)):
+     """Gera sugestões de venda usando a memória estruturada e o RAG dinâmico."""
++    if GLOBAL_MODELS.get("llm") is None:
++        print_warning("Tentativa de gerar resposta, mas os modelos de IA não estão carregados...")
++        raise HTTPException(
++            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
++            detail="Os recursos de IA não estão disponíveis no momento."
++        )
++
+     try:
+         # 1. Pega os dados completos da conversa do nosso estado em memória
+         conversation_data = CONVERSATION_STATE_STORE.get(request.conversation_id)
+@@ -662,10 +732,10 @@ async def generate_response(request: SuggestionRequest, current_user: User = Dep
+
+         # 2. Chama a função do cérebro passando todos os contextos
+         resultado_ia = cerebro_ia.generate_sales_suggestions(
+-            llm=llm,
+-            ensemble_retriever=ensemble_retriever,
+-            embeddings_model=embeddings_model,
+-            playbook=playbook,
++            llm=GLOBAL_MODELS["llm"],
++            ensemble_retriever=GLOBAL_MODELS["retriever"],
++            embeddings_model=GLOBAL_MODELS["embeddings_model"],
++            playbook=GLOBAL_MODELS["playbook"],
+             query=request.query,
+             conversation_id=request.conversation_id,
+             current_stage_id=request.current_stage_id,
+@@ -706,6 +776,13 @@ async def create_or_update_conversation_details(contact_id: str, contact_data: d
+ # Em main.py, substitua a função inteira por esta versão
+
+ async def load_history_from_evolution_api():
++    """
++    ✅ CORRIGIDO: Tratamento robusto de erros 404 e timeouts
++    """
++    # Aguarda 5 segundos para o servidor estar totalmente pronto
++    await asyncio.sleep(5)
++
++    print_info("🔄 Iniciando sincronização com Evolution API...")
+
+     async with STATE_LOCK:
+         try:
+@@ -714,86 +791,130 @@ async def load_history_from_evolution_api():
+
+                 # PASSO 1: Buscar Contatos
+                 contacts_url = f"{EVO_URL}/chat/findContacts/{EVO_INSTANCE}"
+-                contacts_response = await client.post(contacts_url, headers=headers, json={})
+-                contacts_response.raise_for_status()
+-                contacts = contacts_response.json() or []
+-                print_success(f"✅ Encontrados {len(contacts)} contatos.")
+-
+-                # PASSO 2: Carregar Histórico Completo
+-                all_messages_flat_list = []
+-                current_page, total_pages = 1, 1
+-                while current_page <= total_pages:
+-                    messages_url = f"{EVO_URL}/chat/findMessages/{EVO_INSTANCE}"
+-                    payload = {"limit": 100, "page": current_page}
+-                    response = await client.post(messages_url, headers=headers, json=payload, timeout=60.0)
+-                    if response.status_code != 200: break
+-                    data = response.json()
+-                    message_data = data.get("messages", {})
+-                    total_pages = message_data.get("pages", 1)
+-                    records = message_data.get("records", [])
+-                    if not records: break
+-                    all_messages_flat_list.extend(records)
+-                    print(f"    - Página {current_page}/{total_pages} carregada...")
+-                    current_page += 1
+-                print_success(f"✅ Histórico de {len(all_messages_flat_list)} mensagens carregado.")
+-
+-                # PASSO 3: Agrupar mensagens e montar o estado final
+-                messages_grouped_by_jid = {}
+-                for msg in all_messages_flat_list:
+-                    key = msg.get("key", {})
+-                    remote_jid = key.get("remoteJid")
+-                    if not remote_jid: continue
+-                    if remote_jid not in messages_grouped_by_jid:
+-                        messages_grouped_by_jid[remote_jid] = []
+-                    message_obj = msg.get("message", {})
+-                    content = message_obj.get("conversation") or message_obj.get("extendedTextMessage", {}).get("text")
+-                    if content:
+-                        messages_grouped_by_jid[remote_jid].append({
+-                            "content": content,
+-                            "sender": "vendedor" if key.get("fromMe") else "cliente",
+-                            "timestamp": msg.get("messageTimestamp", int(time.time())),
+-                            "message_id": key.get("id", str(uuid.uuid4()))
+-                        })
+-
+-                new_conversation_store: Dict[str, Any] = {}
+-                conversations_added = 0  # Contador para o log
+-                for contact in contacts:
+-                    jid = contact.get("remoteJid")
+-                    if not jid or "@s.whatsapp.net" not in jid or "@g.us" in jid:
+-                        continue
+-
+-                    # Pega a lista de mensagens que agrupamos para este JID (ou uma lista vazia).
+-                    contact_messages = messages_grouped_by_jid.get(jid, [])
+-
+-                    # =====================================================================
+-                    # A NOVA CONDIÇÃO ESTÁ AQUI:
+-                    # Só adiciona a conversa ao estado se ela tiver mensagens.
+-                    # =====================================================================
+-                    if contact_messages:
+-                        contact_messages.sort(key=lambda x: x["timestamp"])  # Ordena só se houver mensagens
+-                        name = contact.get("pushName") or contact.get("name") or jid.split('@')[0]
+-
+-                        new_conversation_store[jid] = {
+-                            "name": name,
+-                            "avatar_url": contact.get("profilePicUrl") or "",
+-                            "messages": contact_messages,
+-                            "suggestions": [],
+-                            "dados_cliente": {},
+-                            "unread": False,
+-                            "unreadCount": 0,
+-                            "stage_id": "stage_prospecting"
+-                        }
+-                        conversations_added += 1  # Incrementa o contador
+-                    # =====================================================================
+-
+-                global CONVERSATION_STATE_STORE
+-                CONVERSATION_STATE_STORE = copy.deepcopy(new_conversation_store)
+-
+-                print_success("\n" + "=" * 70)
+-                print_success("SINCRONIZAÇÃO PARA FRONTEND CONCLUÍDA COM SUCESSO!")
+-                # Atualiza o log para mostrar o número real de conversas montadas
+-                print_info(f"📊 Resumo: {conversations_added} conversas com mensagens montadas.")
+-                print_info("=" * 70 + "\n")
++
++                try:
++                    print_info(f"📡 Buscando contatos em: {contacts_url}")
++                    contacts_response = await client.post(contacts_url, headers=headers, json={})
++                    contacts_response.raise_for_status()
++                    contacts = contacts_response.json() or []
++                    print_success(f"✅ Encontrados {len(contacts)} contatos.")
++
++                except httpx.HTTPStatusError as e:
++                    if e.response.status_code == 404:
++                        print_error(f"❌ Endpoint não encontrado (404): {contacts_url}")
++                        print_warning("⚠️ Verifique se a Evolution API está configurada corretamente")
++                        print_warning("⚠️ Endpoint esperado: POST /chat/findContacts/{instance}")
++                    else:
++                        print_error(f"❌ Erro HTTP {e.response.status_code}: {e.response.text}")
++                    return
++
++                except httpx.ConnectError as e:
++                    print_error(f"❌ Erro de conexão com Evolution API: {e}")
++                    print_warning(f"⚠️ Verifique se a URL está correta: {EVO_URL}")
++                    return
++
++                except Exception as e:
++                    print_error(f"❌ Erro ao buscar contatos: {e}")
++                    return
++
++                # PASSO 2: Carregar Histórico (só se conseguiu buscar contatos)
++                if contacts:
++                    all_messages_flat_list = []
++                    current_page, total_pages = 1, 1
++
++                    while current_page <= total_pages:
++                        try:
++                            messages_url = f"{EVO_URL}/chat/findMessages/{EVO_INSTANCE}"
++                            payload = {"limit": 100, "page": current_page}
++
++                            response = await client.post(messages_url, headers=headers, json=payload, timeout=60.0)
++
++                            if response.status_code != 200:
++                                print_warning(f"⚠️ Erro ao buscar página {current_page}: {response.status_code}")
++                                break
++
++                            data = response.json()
++                            message_data = data.get("messages", {})
++                            total_pages = message_data.get("pages", 1)
++                            records = message_data.get("records", [])
++
++                            if not records:
++                                break
++
++                            all_messages_flat_list.extend(records)
++                            print_info(f"    📄 Página {current_page}/{total_pages} carregada...")
++                            current_page += 1
++
++                        except Exception as page_error:
++                            print_error(f"❌ Erro na página {current_page}: {page_error}")
++                            break
++
++                    print_success(f"✅ {len(all_messages_flat_list)} mensagens carregadas")
++
++                    # PASSO 3: Processar mensagens e montar estado
++                    messages_grouped_by_jid = {}
++                    for msg in all_messages_flat_list:
++                        key = msg.get("key", {})
++                        remote_jid = key.get("remoteJid")
++
++                        if not remote_jid:
++                            continue
++
++                        if remote_jid not in messages_grouped_by_jid:
++                            messages_grouped_by_jid[remote_jid] = []
++
++                        message_obj = msg.get("message", {})
++                        content = (
++                                message_obj.get("conversation") or
++                                message_obj.get("extendedTextMessage", {}).get("text")
++                        )
++
++                        if content:
++                            messages_grouped_by_jid[remote_jid].append({
++                                "content": content,
++                                "sender": "vendedor" if key.get("fromMe") else "cliente",
++                                "timestamp": msg.get("messageTimestamp", int(time.time())),
++                                "message_id": key.get("id", str(uuid.uuid4()))
++                            })
++
++                    # Montar estado final
++                    new_conversation_store: Dict[str, Any] = {}
++                    conversations_added = 0
++
++                    for contact in contacts:
++                        jid = contact.get("remoteJid")
++
++                        # Ignora grupos e JIDs inválidos
++                        if not jid or "@s.whatsapp.net" not in jid or "@g.us" in jid:
++                            continue
++
++                        contact_messages = messages_grouped_by_jid.get(jid, [])
++
++                        # ✅ Só adiciona se tiver mensagens
++                        if contact_messages:
++                            contact_messages.sort(key=lambda x: x["timestamp"])
++                            name = contact.get("pushName") or contact.get("name") or jid.split('@')[0]
++
++                            new_conversation_store[jid] = {
++                                "name": name,
++                                "avatar_url": contact.get("profilePicUrl") or "",
++                                "messages": contact_messages,
++                                "suggestions": [],
++                                "dados_cliente": {},
++                                "unread": False,
++                                "unreadCount": 0,
++                                "stage_id": "stage_prospecting"
++                            }
++                            conversations_added += 1
++
++                    # Atualiza o estado global
++                    global CONVERSATION_STATE_STORE
++                    CONVERSATION_STATE_STORE = copy.deepcopy(new_conversation_store)
++
++                    print_success("\n" + "=" * 70)
++                    print_success("✅ SINCRONIZAÇÃO CONCLUÍDA!")
++                    print_info(f"📊 {conversations_added} conversas com mensagens carregadas")
++                    print_success("=" * 70 + "\n")
+
+         except Exception as e:
+             print_error(f"\n❌ ERRO CRÍTICO na sincronização: {e}")
+@@ -895,4 +1016,6 @@ async def start_new_conversation(request: NewConversationRequest, background_tas
+     return {"status": "success", "message": "Conversa iniciada. A mensagem aparecerá em breve."}
+
+ if __name__ == "__main__":
+-    uvicorn.run(app, host="0.0.0.0", port=8000)
+\ No newline at end of file
++    import os
++    port = int(os.environ.get("PORT", 8080))
++    uvicorn.run(app, host="0.0.0.0", port=port)
+\ No newline at end of file
+diff --git a/backend/requirements-backend.txt b/backend/requirements-backend.txt
+new file mode 100644
+index 0000000..f59b4bb
+--- /dev/null
++++ b/backend/requirements-backend.txt
+@@ -0,0 +1,161 @@
++aiohappyeyeballs==2.6.1
++aiohttp==3.12.15
++aiosignal==1.4.0
++annotated-types==0.7.0
++anyio==4.11.0
++attrs==25.3.0
++backoff==2.2.1
++build==1.3.0
++cachetools==6.2.0
++certifi==2025.8.3
++charset-normalizer==3.4.3
++
++# ⚠️ CORREÇÃO CRÍTICA: Forçar NumPy < 2.0 para compatibilidade com ChromaDB
++numpy==1.26.4
++chromadb==1.2.2
++
++click==8.3.0
++coloredlogs==15.0.1
++dataclasses-json==0.6.7
++distro==1.9.0
++dnspython==2.8.0
++durationpy==0.10
++email-validator==2.3.0
++fastapi==0.118.0
++fastapi-cli==0.0.13
++fastapi-cloud-cli==0.3.0
++filelock==3.19.1
++filetype==1.2.0
++flatbuffers==25.9.23
++frozenlist==1.7.0
++fsspec==2025.9.0
++google-ai-generativelanguage==0.7.0
++google-api-core==2.25.1
++google-auth==2.41.1
++google-cloud-storage
++google-cloud-texttospeech==2.31.0
++googleapis-common-protos==1.70.0
++greenlet==3.2.4
++grpcio==1.75.1
++grpcio-status==1.75.1
++h11==0.16.0
++hf-xet==1.1.10
++httpcore==1.0.9
++httptools==0.6.4
++httpx==0.28.1
++httpx-sse==0.4.1
++huggingface-hub==0.35.3
++humanfriendly==10.0
++idna==3.10
++importlib_metadata==8.7.0
++importlib_resources==6.5.2
++itsdangerous==2.2.0
++Jinja2==3.1.6
++joblib==1.5.2
++jsonpatch==1.33
++jsonpointer==3.0.0
++jsonschema==4.25.1
++jsonschema-specifications==2025.9.1
++kubernetes==34.1.0
++langchain==0.3.27
++langchain-community==0.3.30
++langchain-core==0.3.77
++langchain-google-genai==2.1.12
++langchain-text-splitters==0.3.11
++langsmith==0.4.31
++llvmlite==0.45.1
++markdown-it-py==4.0.0
++MarkupSafe==3.0.3
++marshmallow==3.26.1
++mdurl==0.1.2
++mmh3==5.2.0
++more-itertools==10.8.0
++mpmath==1.3.0
++multidict==6.6.4
++mypy_extensions==1.1.0
++networkx==3.5
++numba==0.62.1
++oauthlib==3.3.1
++opentelemetry-api==1.37.0
++opentelemetry-exporter-otlp-proto-common==1.37.0
++opentelemetry-exporter-otlp-proto-grpc==1.37.0
++opentelemetry-proto==1.37.0
++opentelemetry-sdk==1.37.0
++opentelemetry-semantic-conventions==0.58b0
++orjson==3.11.3
++outcome==1.3.0.post0
++overrides==7.7.0
++packaging==25.0
++pillow==11.3.0
++posthog==5.4.0
++propcache==0.3.2
++proto-plus==1.26.1
++protobuf==6.32.1
++pyasn1==0.6.1
++pyasn1_modules==0.4.2
++pybase64==1.4.2
++pydantic==2.11.9
++pydantic-extra-types==2.10.5
++pydantic-settings==2.11.0
++pydantic_core==2.33.2
++Pygments==2.19.2
++PyMuPDF==1.26.5
++PyPika==0.48.9
++pyproject_hooks==1.2.0
++PySocks==1.7.1
++python-dateutil==2.9.0.post0
++python-dotenv==1.1.1
++python-multipart==0.0.20
++python-jose[cryptography]==3.3.0
++PyYAML==6.0.3
++referencing==0.36.2
++regex==2025.9.18
++requests==2.32.5
++requests-oauthlib==2.0.0
++requests-toolbelt==1.0.0
++rich==14.1.0
++rich-toolkit==0.15.1
++rignore==0.7.0
++rpds-py==0.27.1
++rsa==4.9.1
++safetensors==0.6.2
++scikit-learn==1.7.2
++scipy==1.16.2
++sentence-transformers==5.1.1
++sentry-sdk==2.40.0
++shellingham==1.5.4
++six==1.17.0
++sniffio==1.3.1
++sortedcontainers==2.4.0
++SQLAlchemy==2.0.43
++starlette==0.48.0
++sympy==1.14.0
++tenacity==9.1.2
++threadpoolctl==3.6.0
++tiktoken==0.11.0
++tokenizers==0.22.1
++tqdm==4.67.1
++trio==0.30.0
++trio-websocket==0.12.2
++typer==0.19.2
++typing-inspect==0.9.0
++typing-inspection==0.4.2
++typing_extensions==4.14.1
++ujson==5.11.0
++urllib3==2.0.0
++uvicorn==0.37.0
++uvloop==0.21.0
++watchfiles==1.1.0
++webdriver-manager==4.0.2
++websocket-client==1.8.0
++websockets==15.0.1
++wsproto==1.2.0
++yarl==1.20.1
++zipp==3.23.0
++zstandard==0.25.0
++rank_bm25
++thefuzz
++python-Levenshtein
++
++bcrypt==4.1.2
++passlib==1.7.4
+\ No newline at end of file
+diff --git a/backend/scripts/Dockerfile.pipeline b/backend/scripts/Dockerfile.pipeline
+new file mode 100644
+index 0000000..f298f8e
+--- /dev/null
++++ b/backend/scripts/Dockerfile.pipeline
+@@ -0,0 +1,23 @@
++FROM python:3.11-slim
++WORKDIR /app
++
++# Instala o Git
++RUN apt-get update && \
++    apt-get install -y git && \
++    rm -rf /var/lib/apt/lists/*
++
++# Copia o requirements.txt DE DENTRO DA PASTA scripts/ no contexto
++COPY scripts/requirements.txt .
++RUN pip install --no-cache-dir -r requirements.txt
++
++# --- AJUSTES NOS CAMINHOS DE CÓPIA ---
++# Copia o script DE DENTRO DA PASTA scripts/ no contexto para a raiz /app
++COPY scripts/gerenciar_pipeline.py .
++
++# Copia core/, data/, youtube_links.txt DA RAIZ DO CONTEXTO (backend/)
++COPY core/ /app/core/
++COPY scripts/data/ /app/data/
++COPY scripts/youtube_links.txt .
++
++# O CMD continua o mesmo, pois o script foi copiado para /app
++CMD ["python", "gerenciar_pipeline.py"]
+\ No newline at end of file
+diff --git a/backend/scripts/__init__.py b/backend/scripts/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/backend/scripts/gerenciar_pipeline.py b/backend/scripts/gerenciar_pipeline.py
+index 2b24669..8f2916a 100644
+--- a/backend/scripts/gerenciar_pipeline.py
++++ b/backend/scripts/gerenciar_pipeline.py
+@@ -1,6 +1,7 @@
+ import os
+ import shutil
+ import json
++import traceback
+ import subprocess
+ import argparse
+ from pathlib import Path
+@@ -11,19 +12,22 @@ import fitz  # PyMuPDF --- NOVO ---
+ from dotenv import load_dotenv
+
+ from langchain.docstore.document import Document
+-from langchain_community.vectorstores import Chroma
+ from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+ from langchain.prompts import ChatPromptTemplate
+ from langchain_core.output_parsers import JsonOutputParser
+ from langchain_core.exceptions import OutputParserException
+
++import chromadb
++from chromadb.utils.embedding_functions import GoogleGenerativeAiEmbeddingFunction
++
+ # --- 1. CONFIGURAÇÕES E CONSTANTES GLOBAIS ---
+-BACKEND_DIR = Path(__file__).parent.parent.resolve()
+-DATA_DIR = BACKEND_DIR / "data"
+-VIDEOS_DIR = BACKEND_DIR / "videos"
+-CHROMA_PATH = str(BACKEND_DIR / "chroma_db_local")
+-LINKS_FILE = BACKEND_DIR / "youtube_links.txt"
+-TEMP_DIR = BACKEND_DIR / "temp_audio"
++APP_DIR = Path(__file__).parent.parent.resolve()
++DATA_DIR = APP_DIR / "data"               # Agora aponta para backend/data
++VIDEOS_DIR = APP_DIR / "videos"           # Agora aponta para backend/videos
++LINKS_FILE = APP_DIR / "scripts" / "youtube_links.txt" # Aponta para backend/scripts/youtube_links.txt
++TEMP_DIR = APP_DIR / "temp_audio"         # Agora aponta para backend/temp_audio
++CHROMA_HOST = os.environ.get("CHROMA_HOST")
++
+ REFINER_PROMPT_JSON_TEMPLATE = """
+ Você é um sistema especialista em ETL (Extração, Transformação e Carga) de conhecimento. Sua função é receber um trecho de uma transcrição de vídeo-aula ou um texto de um documento e transformá-lo em um ou mais "chunks" de conhecimento em formato JSON. Cada chunk deve ser atômico, coeso e focado em um único tópico ou subtópico. O objetivo é criar uma base de dados vetorial otimizada para buscas de similaridade (RAG).
+
+@@ -220,45 +224,148 @@ def refine_single_json_file(json_filepath: Path, chain, source_type: str):
+         print(f"  -> ❌ ERRO GERAL ao refinar o arquivo '{json_filepath.name}': {e}")
+
+
+-def create_database_from_all_jsonl():
+-    # ... (código inalterado)
+-    print("\n--- [FINAL] CRIANDO O BANCO DE DADOS VETORIAL ---")
++# Em backend/scripts/gerenciar_pipeline.py
++
++# Garanta estas importações no topo do arquivo:
++import json
++import os
++from pathlib import Path
++from urllib.parse import urlparse
++import chromadb
++from chromadb.config import Settings  # Necessário para LangChain Chroma client_settings
++from langchain.docstore.document import Document
++from langchain_community.vectorstores import Chroma
++from langchain_google_genai import GoogleGenerativeAIEmbeddings
++
++
++# (Outras importações que a função usa)
++
++def create_database_from_all_jsonl(args):
++    """
++    Lê arquivos refinado_*.jsonl e adiciona ao ChromaDB v1.2.2 remoto NATIVAMENTE.
++    """
++    print("\n--- [FINAL] CRIANDO O BANCO DE DADOS VETORIAL (v1.2.2) ---")
+     all_chunks = []
+-    jsonl_files = list(DATA_DIR.glob("refinado_*.jsonl"))
++
++    # Define o DATA_DIR corretamente (como já está no seu arquivo)
++    CURRENT_DATA_DIR = APP_DIR / "data"
++    print(f"DEBUG: Tentando listar diretório: {CURRENT_DATA_DIR} (Tipo: {type(CURRENT_DATA_DIR)})")
++
++    jsonl_files = list(CURRENT_DATA_DIR.glob("refinado_*.jsonl"))
+     if not jsonl_files:
+         print("AVISO: Nenhum arquivo .jsonl encontrado para criar o banco de dados.")
+         return
++
++    # Lê todos os chunks dos arquivos .jsonl
+     for file_path in jsonl_files:
+         with open(file_path, 'r', encoding='utf-8') as f:
+             for line in f:
+                 try:
+                     data = json.loads(line)
+-                    if "tags" in data["metadata"] and isinstance(data["metadata"]["tags"], list):
+-                        data["metadata"]["tags"] = ", ".join(data["metadata"]["tags"])
+-                    doc = Document(page_content=data["content"],
+-                                   metadata={**data["metadata"], "chunk_id": data["chunk_id"], "title": data["title"]})
++                    # Cria o objeto Document do LangChain (usado apenas para estrutura temporária)
++                    doc = Document(page_content=data.get("content", ""),
++                                   metadata={**data.get("metadata", {}),
++                                             "chunk_id": data.get("chunk_id", "N/A"),
++                                             "title": data.get("title", "Sem Título")})
+                     all_chunks.append(doc)
+-                except (json.JSONDecodeError, KeyError) as e:
++                except (json.JSONDecodeError, KeyError, TypeError) as e:
+                     print(f"  -> ⚠️ AVISO: Pulando linha mal formada no arquivo '{file_path.name}'. Erro: {e}")
++
+     if not all_chunks:
+         print("\nAVISO: Nenhum chunk válido foi extraído para adicionar ao banco de dados.")
+         return
+     print(f"INFO: Total de {len(all_chunks)} chunks para adicionar ao DB.")
++
++    # Configurações de API e DB
+     api_key = os.environ.get("GEMINI_API_KEY")
+-    embeddings_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
+-    if os.path.exists(CHROMA_PATH): shutil.rmtree(CHROMA_PATH)
+-    print("  -> Inicializando novo banco de dados ChromaDB...")
+-    db = Chroma.from_documents(
+-        documents=all_chunks,
+-        embedding=embeddings_model,
+-        persist_directory=CHROMA_PATH
+-    )
+-    print(f"  -> Adicionados {len(all_chunks)} chunks em uma única operação.")
+-    db.persist()
+-    print("✅ Banco de Dados criado/atualizado com sucesso!")
+-
+-
+-# --- 3. ORQUESTRADOR PRINCIPAL ---
++    CHROMA_URL = os.environ.get("CHROMA_HOST")
++    COLLECTION_NAME = "evolution"
++
++    if not api_key or not CHROMA_URL:
++        print("❌ ERRO: GEMINI_API_KEY ou CHROMA_HOST não configuradas.")
++        return
++
++    # Conecta usando HttpClient nativo v1.2.2 (MÉTODO CORRETO)
++    print(f"  -> Conectando ao servidor ChromaDB v1.2.2 em: {CHROMA_URL} via HttpClient...")
++    try:
++        parsed_url = urlparse(CHROMA_URL)
++        host_name = parsed_url.netloc  # Ex: chroma-server-....run.app (sem https://)
++        ssl_enabled = parsed_url.scheme == 'https'
++
++        if not host_name:
++            raise ValueError("Não foi possível extrair o hostname da CHROMA_HOST URL.")
++
++        print(f"  -> Usando HttpClient com host='{host_name}', ssl={ssl_enabled}")
++
++        remote_client = chromadb.HttpClient(
++            host=host_name,
++            ssl=ssl_enabled,
++            # port=443 # Omitir a porta 443 é o padrão para ssl=True e mais seguro
++        )
++        remote_client.heartbeat()  # Testa a conexão
++        print("  -> Conexão HttpClient v1.2.2 e Heartbeat OK.")
++
++    except Exception as e:
++        print(f"  -> ❌ ERRO ao conectar via HttpClient v1.2.2: {e}")
++        traceback.print_exc()
++        return
++
++    # Limpa coleção antiga se --full-rebuild
++    if args.full_rebuild:
++        print(f"  -> Removendo Collection '{COLLECTION_NAME}' (--full-rebuild)...")
++        try:
++            remote_client.delete_collection(name=COLLECTION_NAME)
++            print(f"  -> Collection '{COLLECTION_NAME}' removida.")
++        except Exception as e:
++            print(f"  -> Aviso: Não foi possível remover collection '{COLLECTION_NAME}' (pode não existir): {e}")
++
++    # Obtém/Cria coleção e adiciona dados NATIVAMENTE
++    try:
++        print(f"  -> Obtendo/Criando collection '{COLLECTION_NAME}'...")
++
++        # Usa a função de embedding NATIVA do chromadb
++        embedding_function_native = GoogleGenerativeAiEmbeddingFunction(
++            api_key=api_key, model_name="models/text-embedding-004"
++        )
++
++        collection = remote_client.get_or_create_collection(
++            name=COLLECTION_NAME,
++            embedding_function=embedding_function_native
++        )
++        print(f"  -> Acesso à collection OK.")
++
++        # Prepara dados NATIVOS (extrai de objetos Document)
++        ids = [chunk.metadata.get("chunk_id", f"chunk_{i}") for i, chunk in enumerate(all_chunks)]
++        documents = [chunk.page_content for chunk in all_chunks]
++        metadatas = [chunk.metadata for chunk in all_chunks]
++
++        # Adiciona os documentos em lotes USANDO O CLIENTE NATIVO
++        print(f"  -> Adicionando {len(ids)} chunks ao DB remoto via HttpClient...")
++        batch_size = 100
++        for i in range(0, len(ids), batch_size):
++            end_index = min(i + batch_size, len(ids))
++            batch_num = i // batch_size + 1
++            total_batches = (len(ids) + batch_size - 1) // batch_size
++
++            print(f"    -> Lote {batch_num}/{total_batches} (índices {i}-{end_index - 1})")
++
++            collection.add(  # MÉTODO NATIVO
++                ids=ids[i:end_index],
++                documents=documents[i:end_index],
++                metadatas=metadatas[i:end_index]
++            )
++
++        # Verifica contagem final USANDO O CLIENTE NATIVO
++        final_count = collection.count()  # MÉTODO NATIVO
++        print(f"  -> Total processado: {len(all_chunks)} chunks")
++        print(f"  -> Contagem final na Collection '{COLLECTION_NAME}': {final_count}")
++        print("✅ Banco de Dados remoto criado/atualizado com sucesso!")
++
++    except Exception as e:
++        print(f"  -> ❌ ERRO durante adição nativa: {e}")
++        traceback.print_exc()
++        return
++
+ def main():
+     parser = argparse.ArgumentParser(description="Pipeline de gestão da base de conhecimento do RAG.")
+     parser.add_argument('--full-rebuild', action='store_true',
+@@ -292,25 +399,26 @@ def main():
+
+     # --- Etapa 1: Processar vídeos do YouTube ---
+     # ... (código inalterado)
+-    if LINKS_FILE.exists():
+-        video_sources = []
+-        with open(LINKS_FILE, 'r') as f:
+-            for line in f:
+-                line = line.strip()
+-                if line and not line.startswith('#'):
+-                    parts = line.split(',')
+-                    if len(parts) >= 1 and parts[0].startswith('http'):
+-                        url = parts[0]
+-                        source_type = parts[1].strip() if len(parts) > 1 else 'video_tutorial'
+-                        video_sources.append({'url': url, 'type': source_type})
+-        if video_sources:
+-            print(f"\n--- INICIANDO PROCESSAMENTO DE {len(video_sources)} VÍDEOS DO YOUTUBE ---")
+-            for index, source in enumerate(video_sources):
+-                print(
+-                    f"\n--- Processando Vídeo {index + 1}/{len(video_sources)}: {source['url']} (Tipo: {source['type']}) ---")
+-                json_path = transcribe_youtube_video(source['url'], whisper_model)
+-                if json_path:
+-                    json_paths_to_refine.append({'path': json_path, 'type': source['type']})
++    # if LINKS_FILE.exists():
++    #     video_sources = []
++    #     with open(LINKS_FILE, 'r') as f:
++    #         for line in f:
++    #             line = line.strip()
++    #             if line and not line.startswith('#'):
++    #                 parts = line.split(',')
++    #                 if len(parts) >= 1 and parts[0].startswith('http'):
++    #                     url = parts[0]
++    #                     source_type = parts[1].strip() if len(parts) > 1 else 'video_tutorial'
++    #                     video_sources.append({'url': url, 'type': source_type})
++    video_sources = []
++    if video_sources:
++        print(f"\n--- INICIANDO PROCESSAMENTO DE {len(video_sources)} VÍDEOS DO YOUTUBE ---")
++        for index, source in enumerate(video_sources):
++            print(
++                f"\n--- Processando Vídeo {index + 1}/{len(video_sources)}: {source['url']} (Tipo: {source['type']}) ---")
++            json_path = transcribe_youtube_video(source['url'], whisper_model)
++            if json_path:
++                json_paths_to_refine.append({'path': json_path, 'type': source['type']})
+
+     # --- Etapa 2: Processar vídeos locais ---
+     # ... (código inalterado)
+@@ -326,6 +434,12 @@ def main():
+
+     # --- NOVO ---: Etapa 3: Processar documentos TXT e PDF da pasta DATA
+     document_files = list(DATA_DIR.glob("*.txt")) + list(DATA_DIR.glob("*.pdf"))
++
++    print(f"\nDEBUG: Procurando documentos em: {DATA_DIR}")
++    print(f"DEBUG: Arquivos .txt encontrados: {[f.name for f in DATA_DIR.glob('*.txt')]}")
++    print(f"DEBUG: Arquivos .pdf encontrados: {[f.name for f in DATA_DIR.glob('*.pdf')]}")
++    print(f"DEBUG: Total de document_files: {len(document_files)}")  # DEBUG
++
+     if document_files:
+         print(f"\n--- INICIANDO PROCESSAMENTO DE {len(document_files)} DOCUMENTOS LOCAIS ---")
+         for index, doc_file in enumerate(document_files):
+@@ -344,13 +458,18 @@ def main():
+
+     # --- Etapa 4: Refinar todos os JSONs coletados ---
+     # ... (código inalterado)
++    print(f"\nDEBUG: JSONs a serem refinados: {[source['path'].name for source in json_paths_to_refine]}")
+     if json_paths_to_refine:
+         print(f"\n--- INICIANDO ETAPA DE REFINAMENTO PARA {len(json_paths_to_refine)} FONTES ---")
+         for source in json_paths_to_refine:
+             refine_single_json_file(source['path'], refiner_chain, source['type'])
+
+     # --- Etapa 5: Criar o banco de dados final ---
+-    create_database_from_all_jsonl()
++    print("\nDEBUG: Verificando arquivos .jsonl antes de criar DB...")
++    jsonl_files_debug = list(DATA_DIR.glob("refinado_*.jsonl"))
++    print(f"DEBUG: Arquivos .jsonl encontrados em {DATA_DIR}: {[f.name for f in jsonl_files_debug]}")
++
++    create_database_from_all_jsonl(args)
+
+     # --- Limpeza Final ---
+     if os.path.exists(TEMP_DIR):
+diff --git a/backend/requirements.txt b/backend/scripts/requirements.txt
+similarity index 97%
+rename from backend/requirements.txt
+rename to backend/scripts/requirements.txt
+index d0c7f76..0f29168 100644
+--- a/backend/requirements.txt
++++ b/backend/scripts/requirements.txt
+@@ -10,7 +10,7 @@ build==1.3.0
+ cachetools==6.2.0
+ certifi==2025.8.3
+ charset-normalizer==3.4.3
+-chromadb==1.1.0
++chromadb==1.2.2
+ click==8.3.0
+ coloredlogs==15.0.1
+ dataclasses-json==0.6.7
+@@ -52,7 +52,7 @@ jsonpatch==1.33
+ jsonpointer==3.0.0
+ jsonschema==4.25.1
+ jsonschema-specifications==2025.9.1
+-kubernetes==34.1.0
++#kubernetes==34.1.0
+ langchain==0.3.27
+ langchain-community==0.3.30
+ langchain-core==0.3.77
+@@ -71,7 +71,6 @@ multidict==6.6.4
+ mypy_extensions==1.1.0
+ networkx==3.5
+ numba==0.62.1
+-numpy==1.26.4
+ oauthlib==3.3.1
+ onnxruntime==1.23.0
+ openai-whisper==20250625
+@@ -120,7 +119,7 @@ rsa==4.9.1
+ safetensors==0.6.2
+ scikit-learn==1.7.2
+ scipy==1.16.2
+-selenium==4.35.0
++#selenium==4.35.0
+ sentence-transformers==5.1.1
+ sentry-sdk==2.40.0
+ shellingham==1.5.4
+@@ -144,7 +143,7 @@ typing-inspect==0.9.0
+ typing-inspection==0.4.2
+ typing_extensions==4.14.1
+ ujson==5.11.0
+-urllib3==2.5.0
++urllib3
+ uvicorn==0.37.0
+ uvloop==0.21.0
+ watchfiles==1.1.0
+diff --git a/backend/youtube_links.txt b/backend/scripts/youtube_links.txt
+similarity index 100%
+rename from backend/youtube_links.txt
+rename to backend/scripts/youtube_links.txt
+diff --git a/chroma-server/Dockerfile b/chroma-server/Dockerfile
+new file mode 100644
+index 0000000..2510eea
+--- /dev/null
++++ b/chroma-server/Dockerfile
+@@ -0,0 +1,15 @@
++# Dockerfile para ChromaDB Server v1.2.2 com PostgreSQL
++FROM python:3.11-slim
++WORKDIR /app
++
++RUN apt-get update && \
++    apt-get install -y --no-install-recommends build-essential && \
++    rm -rf /var/lib/apt/lists/*
++
++COPY requirements.txt .
++RUN pip install --no-cache-dir -r requirements.txt # Deve ter chromadb[server]==1.2.2, psycopg2, opentelemetry...
++
++EXPOSE 8000
++
++# Comando de inicialização padrão v1.x (sem ENVs de persistência no Dockerfile)
++CMD ["chroma", "run", "--host", "0.0.0.0", "--port", "8000"]
+\ No newline at end of file
+diff --git a/chroma-server/deploy-chroma-server.sh b/chroma-server/deploy-chroma-server.sh
+new file mode 100755
+index 0000000..f23e659
+--- /dev/null
++++ b/chroma-server/deploy-chroma-server.sh
+@@ -0,0 +1,59 @@
++#!/bin/bash
++# Script de deploy do ChromaDB Server v1.2.2 no Cloud Run com PostgreSQL
++
++set -e # Sai em caso de erro
++
++PROJECT_ID="gen-lang-client-0750608840"
++REGION="us-central1"
++SERVICE_NAME="chroma-server"
++IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
++SQL_INSTANCE_CONNECTION_NAME="${PROJECT_ID}:${REGION}:cosmos-copilot-postgres" # Ajuste se região/nome do SQL for diferente
++DB_SECRET_NAME="POSTGRES_PASSWORD" # Nome do secret com a senha do PG
++DB_SECRET_VERSION="latest"
++
++# Cores
++RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
++
++echo -e "${GREEN}🚀 Iniciando deploy do ChromaDB Server v1.2.2 com PostgreSQL${NC}"
++
++# 1. Build da imagem
++echo -e "\n${YELLOW}📦 Construindo imagem Docker...${NC}"
++gcloud builds submit --tag ${IMAGE_NAME}:latest .
++if [ $? -ne 0 ]; then echo -e "${RED}❌ Falha no build${NC}"; exit 1; fi
++echo -e "${GREEN}✅ Imagem construída${NC}"
++
++# 2. Deploy no Cloud Run
++echo -e "\n${YELLOW}🚢 Fazendo deploy no Cloud Run...${NC}"
++gcloud run deploy ${SERVICE_NAME} \
++  --image ${IMAGE_NAME}:latest \
++  --platform managed \
++  --region ${REGION} \
++  --allow-unauthenticated \
++  --memory 1Gi \
++  --cpu 1 \
++  --timeout 300s \
++  --max-instances 3 \
++  --min-instances 0 \
++  --port 8000
++  # REMOVIDOS: --add-cloudsql-instances, --update-secrets, --set-env-vars=CHROMA_DB_*
++  # Vamos deixar o servidor rodar "puro"
++
++if [ $? -ne 0 ]; then echo -e "${RED}❌ Falha no deploy${NC}"; exit 1; fi
++echo -e "${GREEN}✅ Deploy concluído!${NC}"
++
++# 3. Obtém URL e Testa
++SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} --platform managed --region ${REGION} --format 'value(status.url)')
++echo -e "\n${GREEN}🌐 Serviço disponível em: ${SERVICE_URL}${NC}"
++echo -e "${YELLOW}📝 Configure CHROMA_HOST=${SERVICE_URL} nos clientes${NC}"
++echo -e "\n${YELLOW}🔍 Testando heartbeat...${NC}"
++sleep 5
++if curl -sf "${SERVICE_URL}/api/v1/heartbeat"; then
++  echo -e "\n${GREEN}✅ Servidor respondendo ao heartbeat!${NC}"
++else
++  echo -e "\n${RED}⚠️ Servidor NÃO respondeu ao heartbeat. Verifique os logs:${NC}"
++  echo "gcloud run services logs tail ${SERVICE_NAME} --region ${REGION}"
++  exit 1
++fi
++
++echo -e "\n${YELLOW}📊 Para ver logs:${NC}"
++echo "gcloud run services logs tail ${SERVICE_NAME} --region ${REGION}"
+\ No newline at end of file
+diff --git a/chroma-server/requirements.txt b/chroma-server/requirements.txt
+new file mode 100644
+index 0000000..12fde3b
+--- /dev/null
++++ b/chroma-server/requirements.txt
+@@ -0,0 +1,8 @@
++chromadb[server]==1.2.2
++psycopg2-binary
++google-generativeai
++
++# Adicionando dependências do servidor manualmente
++fastapi
++uvicorn
++opentelemetry-instrumentation-fastapi
+\ No newline at end of file
+diff --git a/firebase-debug.log b/firebase-debug.log
+new file mode 100644
+index 0000000..bac59ec
+--- /dev/null
++++ b/firebase-debug.log
+@@ -0,0 +1,56 @@
++[debug] [2025-10-21T17:38:52.387Z] ----------------------------------------------------------------------
++[debug] [2025-10-21T17:38:52.405Z] Command:       /usr/local/bin/node /usr/local/bin/firebase init hosting
++[debug] [2025-10-21T17:38:52.405Z] CLI Version:   14.20.0
++[debug] [2025-10-21T17:38:52.406Z] Platform:      darwin
++[debug] [2025-10-21T17:38:52.406Z] Node Version:  v22.20.0
++[debug] [2025-10-21T17:38:52.406Z] Time:          Tue Oct 21 2025 14:38:52 GMT-0300 (Brasilia Standard Time)
++[debug] [2025-10-21T17:38:52.406Z] ----------------------------------------------------------------------
++[debug]
++[info]
++     ######## #### ########  ######## ########     ###     ######  ########
++     ##        ##  ##     ## ##       ##     ##  ##   ##  ##       ##
++     ######    ##  ########  ######   ########  #########  ######  ######
++     ##        ##  ##    ##  ##       ##     ## ##     ##       ## ##
++     ##       #### ##     ## ######## ########  ##     ##  ######  ########
++
++You're about to initialize a Firebase project in this directory:
++
++  /Users/osvaldoduarte/PycharmProjects/Projeto_copilot_vendas
++
++[info]
++=== Project Setup
++[info]
++[info] First, let's associate this project directory with a Firebase project.
++[info] You can create multiple project aliases by running firebase use --add,
++[info]
++[info] i  If you want to create a project in a Google Cloud organization or folder, please use "firebase projects:create" instead, and return to this command when you've created the project.
++[debug] [2025-10-21T17:39:07.649Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
++[debug] [2025-10-21T17:39:07.649Z] > authorizing via signed-in user (contato.osvaldoduarte@gmail.com)
++[debug] [2025-10-21T17:39:32.352Z] ----------------------------------------------------------------------
++[debug] [2025-10-21T17:39:32.356Z] Command:       /usr/local/bin/node /usr/local/bin/firebase init hosting
++[debug] [2025-10-21T17:39:32.357Z] CLI Version:   14.20.0
++[debug] [2025-10-21T17:39:32.357Z] Platform:      darwin
++[debug] [2025-10-21T17:39:32.357Z] Node Version:  v22.20.0
++[debug] [2025-10-21T17:39:32.357Z] Time:          Tue Oct 21 2025 14:39:32 GMT-0300 (Brasilia Standard Time)
++[debug] [2025-10-21T17:39:32.357Z] ----------------------------------------------------------------------
++[debug]
++[info]
++     ######## #### ########  ######## ########     ###     ######  ########
++     ##        ##  ##     ## ##       ##     ##  ##   ##  ##       ##
++     ######    ##  ########  ######   ########  #########  ######  ######
++     ##        ##  ##    ##  ##       ##     ## ##     ##       ## ##
++     ##       #### ##     ## ######## ########  ##     ##  ######  ########
++
++You're about to initialize a Firebase project in this directory:
++
++  /Users/osvaldoduarte/PycharmProjects/Projeto_copilot_vendas
++
++[info]
++=== Project Setup
++[info]
++[info] First, let's associate this project directory with a Firebase project.
++[info] You can create multiple project aliases by running firebase use --add,
++[info]
++[info] i  If you want to create a project in a Google Cloud organization or folder, please use "firebase projects:create" instead, and return to this command when you've created the project.
++[debug] [2025-10-21T17:41:29.533Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
++[debug] [2025-10-21T17:41:29.533Z] > authorizing via signed-in user (contato.osvaldoduarte@gmail.com)
+diff --git a/frontend/.firebase/hosting.YnVpbGQ.cache b/frontend/.firebase/hosting.YnVpbGQ.cache
+new file mode 100644
+index 0000000..c0d9882
+--- /dev/null
++++ b/frontend/.firebase/hosting.YnVpbGQ.cache
+@@ -0,0 +1,48 @@
++robots.txt,1761232677649,391d14b3c2f8c9143a27a28c7399585142228d4d1bdbe2c87ac946de411fa9a2
++logo512.png,1761232677646,2356e0b814e58a349935c8de17226873d615d088a867d591fef48a64c80c9a2f
++favicon.ico,1761232677643,1463be9bedc82e16f9364eec7a1f5152cbe56229401381eed65c1496cb884407
++asset-manifest.json,1761232709595,efcfe97eee878570bb00f7da76e0daf8a8c0ac1a974d3080f6775f1bda91679f
++static/js/reactPlayerYouTube.2effcdca.chunk.js,1761232709567,b39dca0bc17ba042aa7b73d008602721f4f3dda2d7be48937859995ca9be5cab
++static/js/reactPlayerYouTube.2effcdca.chunk.js.LICENSE.txt,1761232709564,7312a503e64bb6307c29b4d780f6b9004a641d53de55afea7d0a1b16a6934113
++static/js/reactPlayerWistia.7ecd3ee3.chunk.js,1761232709567,7690e7267eb353e617f0f99d70b95527f32dd5df79984a41b8ff55bfe8512f7b
++static/js/reactPlayerWistia.7ecd3ee3.chunk.js.LICENSE.txt,1761232709564,7312a503e64bb6307c29b4d780f6b9004a641d53de55afea7d0a1b16a6934113
++static/js/reactPlayerVimeo.c1ebfa3c.chunk.js.LICENSE.txt,1761232709564,150f127c8fec13ae250223b6656cd667aff78392eb68ae7cba491f6ead0c4962
++static/js/reactPlayerWistia.7ecd3ee3.chunk.js.map,1761232709595,7df95114e88e7df994d88b5ad7e74bb6fb7de6ba7903b5006b18320d66c8e590
++static/js/reactPlayerYouTube.2effcdca.chunk.js.map,1761232709577,a089cc04acf93623b3b448eafe4507aee7e71d5bb38471da1c2f1b28eb19de89
++static/js/reactPlayerTwitch.c127d89d.chunk.js.LICENSE.txt,1761232709564,7312a503e64bb6307c29b4d780f6b9004a641d53de55afea7d0a1b16a6934113
++static/js/reactPlayerTwitch.c127d89d.chunk.js,1761232709566,af428f5f0dfb37d3089aff7bc679e0fa480f24baeffabccb17dce448fd88097d
++static/js/reactPlayerTiktok.f731d9b8.chunk.js.map,1761232709586,a0c05a3aced8d7ebd656d542bee3bd2d43171b3f6f33b4c4f7ddeca44b75f10a
++static/js/reactPlayerTiktok.f731d9b8.chunk.js.LICENSE.txt,1761232709563,7312a503e64bb6307c29b4d780f6b9004a641d53de55afea7d0a1b16a6934113
++static/js/reactPlayerTiktok.f731d9b8.chunk.js,1761232709567,87495d983326b12df645e973bb0ab1dddfa1cfb31b3fd7477665f2c1e2df6733
++static/js/reactPlayerVimeo.c1ebfa3c.chunk.js,1761232709566,b6a79f932d61d4bd9592516a247c78ee4e4fb9315f68ab38fbff6fca900fb109
++static/js/reactPlayerSpotify.cae08440.chunk.js.LICENSE.txt,1761232709565,7312a503e64bb6307c29b4d780f6b9004a641d53de55afea7d0a1b16a6934113
++static/js/reactPlayerSpotify.cae08440.chunk.js,1761232709566,4f32cd7b871679b011c41c71270126d80596b1370f46dd3c757fd34488211998
++static/js/reactPlayerPreview.86dfd69b.chunk.js.map,1761232709586,8355e07e98177f30903aa4c5ca6264207b2fe0afc0d82988593cc9b53c2a93df
++static/js/reactPlayerPreview.86dfd69b.chunk.js,1761232709567,b53106028b1349e31071ad38ecf3e80fc167884bf0dde0c4ba9b107c6fbe8384
++static/js/reactPlayerMux.d5f3c837.chunk.js.LICENSE.txt,1761232709563,e2804b56dc4f41c97f07fea84860cfd3ef19f4ecfc38ab6cc2c733175edf7402
++static/js/reactPlayerSpotify.cae08440.chunk.js.map,1761232709577,734f10ac410dde61f944b41969c7f86972d05d8c0e12cebcb7440dc6a4bf2407
++static/js/reactPlayerHls.a54e4c0b.chunk.js.map,1761232709571,d6cdeb808e23a296714db639d3e4334d5d1aca454a0b7340df0d38059d54776f
++static/js/reactPlayerTwitch.c127d89d.chunk.js.map,1761232709586,a8f7250f1d76db370959c2fb752dffe7caa54517f0f582277ab4c8febdd20193
++static/js/reactPlayerHls.a54e4c0b.chunk.js.LICENSE.txt,1761232709563,7312a503e64bb6307c29b4d780f6b9004a641d53de55afea7d0a1b16a6934113
++static/js/reactPlayerHls.a54e4c0b.chunk.js,1761232709564,099def28a8ba2c8b15f6baf9e2b579b9c59a992b10709ed699ebbce8e6b991dc
++static/js/reactPlayerDash.3ae3fb8c.chunk.js.LICENSE.txt,1761232709564,7312a503e64bb6307c29b4d780f6b9004a641d53de55afea7d0a1b16a6934113
++static/js/reactPlayerDash.3ae3fb8c.chunk.js.map,1761232709572,75c9aeb0b506525f249abdc7ae95e7f16bc80ba6b7f6e042dfda04b03cb1ac11
++static/js/reactPlayerDash.3ae3fb8c.chunk.js,1761232709565,319524de5c21bd6f04474b24bbdff654cc0075ca85fe3d3877227eaf57995419
++static/js/main.009336f7.js.LICENSE.txt,1761232709563,0b2ce7b6dc96ec2e0333abbae71c700aba5e25d0b36326cdee85c5b4c8792e0b
++static/js/416.b74348c4.chunk.js.LICENSE.txt,1761232709564,f3c5757b6f69901963641a8f61b8e8595e5abc7dbabfe91b4712f5306e9d5f21
++static/js/372.527cf6c1.chunk.js.map,1761232709598,08836df67e0e5574399c735152498c819eb25116e9422b14ffb47b3bf8b6a0b7
++static/js/372.527cf6c1.chunk.js,1761232709567,09ad8d280794e7bb8a1ff9adf61159f510dbb7a208600bbcdee40b6562648453
++manifest.json,1761232677648,4e1d3adad9ce7e17c0d13fac197f1c27091906f4ecf3909c9f51247bff345118
++static/css/main.cc05a0e3.css,1761232709564,bc8d834a2ec2874dbea50775c6457fba22e308336225be9575de8453baf7561d
++logo192.png,1761232677644,f66564670b5bfe49f3f04a5b63107bae60f4a7736f1d3b83aa0115f7acf45150
++static/css/main.cc05a0e3.css.map,1761232709567,5af58b91927165a39c037c80391a35a21b1c9748eae659c9db80ab31a21670a2
++index.html,1761232709561,bbd7281f99d623660e1c6376eac345c7b259d518c49dcb1ccda41683fa722258
++static/js/reactPlayerVimeo.c1ebfa3c.chunk.js.map,1761232709577,9de9a551442f72e09d91887d75b0945306bb45cd3976147ea0bc8c944fe98ae4
++static/js/main.009336f7.js,1761232709564,99c6bb2c32862aa2c3960f78ab4821fafd47d014f28697e4274d1667aa524376
++static/js/reactPlayerMux.d5f3c837.chunk.js,1761232709567,11882665610f6f191237417762511bcacc7b92fd7d1e48f62e44fdce4311243e
++static/js/788.8ea9157d.chunk.js,1761232709567,47df03421f6cb555bf6e43409a4c250b17bd8d6ac9a2e99599fba36812f2d409
++static/js/416.b74348c4.chunk.js,1761232709567,c5a10f229d5e064d6647e79dd0448c45ca125a336eb1ed59b1e6801ec2b86c6f
++static/js/reactPlayerMux.d5f3c837.chunk.js.map,1761232709577,4cb02c3b65caf76a07109427ab661fe3989a75f5a52b68e191b3316c3c1b57bb
++static/js/main.009336f7.js.map,1761232709572,274f41acb6aec525181c6c77f4cf1b945dee795358a53c4a638a363d39d6e3d2
++static/js/788.8ea9157d.chunk.js.map,1761232709598,7268d49527d28a3dd832332f1f5669eba2098367a087218d4532f13d584b14d5
++static/js/416.b74348c4.chunk.js.map,1761232709596,5dfecd08220cd98d6335150d819c77deaf77db52583f0eef38f962290fdd40b4
+diff --git a/frontend/.firebaserc b/frontend/.firebaserc
+new file mode 100644
+index 0000000..ca6d3f2
+--- /dev/null
++++ b/frontend/.firebaserc
+@@ -0,0 +1,5 @@
++{
++  "projects": {
++    "default": "gen-lang-client-0750608840"
++  }
++}
+diff --git a/frontend/README.md b/frontend/README.md
+index e0b30af..cb91485 100644
+--- a/frontend/README.md
++++ b/frontend/README.md
+@@ -73,7 +73,7 @@ A execução é dividida em três serviços principais: a API do WhatsApp, o nos
+     cd backend
+     python -m venv .venv
+     source .venv/bin/activate  # No Windows: .venv\Scripts\activate
+-    pip install -r requirements.txt
++    pip install -r requirements-backend.txt
+     uvicorn main:app --reload
+     ```
+
+diff --git a/frontend/firebase.json b/frontend/firebase.json
+new file mode 100644
+index 0000000..340ed5b
+--- /dev/null
++++ b/frontend/firebase.json
+@@ -0,0 +1,16 @@
++{
++  "hosting": {
++    "public": "build",
++    "ignore": [
++      "firebase.json",
++      "**/.*",
++      "**/node_modules/**"
++    ],
++    "rewrites": [
++      {
++        "source": "**",
++        "destination": "/index.html"
++      }
++    ]
++  }
++}
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index 50ab388..64f2535 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -12,6 +12,7 @@
+         "@testing-library/jest-dom": "^6.8.0",
+         "@testing-library/react": "^16.3.0",
+         "@testing-library/user-event": "^13.5.0",
++        "fuse.js": "^7.1.0",
+         "react": "^19.1.1",
+         "react-dom": "^19.1.1",
+         "react-modern-drawer": "^1.4.0",
+@@ -8665,6 +8666,15 @@
+         "url": "https://github.com/sponsors/ljharb"
+       }
+     },
++    "node_modules/fuse.js": {
++      "version": "7.1.0",
++      "resolved": "https://registry.npmjs.org/fuse.js/-/fuse.js-7.1.0.tgz",
++      "integrity": "sha512-trLf4SzuuUxfusZADLINj+dE8clK1frKdmqiJNb1Es75fmI5oY6X2mxLVUciLLjxqw/xr72Dhy+lER6dGd02FQ==",
++      "license": "Apache-2.0",
++      "engines": {
++        "node": ">=10"
++      }
++    },
+     "node_modules/gensync": {
+       "version": "1.0.0-beta.2",
+       "resolved": "https://registry.npmjs.org/gensync/-/gensync-1.0.0-beta.2.tgz",
+diff --git a/frontend/package.json b/frontend/package.json
+index 83ab498..5ba139f 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -7,6 +7,7 @@
+     "@testing-library/jest-dom": "^6.8.0",
+     "@testing-library/react": "^16.3.0",
+     "@testing-library/user-event": "^13.5.0",
++    "fuse.js": "^7.1.0",
+     "react": "^19.1.1",
+     "react-dom": "^19.1.1",
+     "react-modern-drawer": "^1.4.0",
+diff --git a/frontend/public/favicon.ico b/frontend/public/favicon.ico
+index a11777c..67318a9 100644
+Binary files a/frontend/public/favicon.ico and b/frontend/public/favicon.ico differ
+diff --git a/frontend/public/index.html b/frontend/public/index.html
+index a25ec54..fd9bdff 100644
+--- a/frontend/public/index.html
++++ b/frontend/public/index.html
+@@ -7,7 +7,7 @@
+     <meta name="theme-color" content="#000000" />
+     <meta
+       name="description"
+-      content="Web site created using create-react-app"
++      content="Sua equipe de vendas com um super suporte!"
+     />
+     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+     <!--
+diff --git a/frontend/src/App.js b/frontend/src/App.js
+index 675fc60..4892db4 100644
+--- a/frontend/src/App.js
++++ b/frontend/src/App.js
+@@ -24,11 +24,115 @@ function App() {
+   const [isModalOpen, setIsModalOpen] = useState(false);
+
+   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
++const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://cosmos-backend-129644477821.us-central1.run.app';
+
+   // --- LÓGICA DE RESPONSIVIDADE ---
+   // Um estado simples para saber se estamos em uma tela "mobile"
+   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
++  const handleLogout = () => {
++    localStorage.removeItem('authToken');
++    setToken(null);
++    setConversations({}); // Limpa os dados
++    setActiveConversationId(null);
++  };
++
++  const fetchWithAuth = useCallback(async (url, options = {}) => {
++    const token = localStorage.getItem('authToken');
++
++    // Prepara os cabeçalhos, adicionando o de Autorização
++    const headers = {
++      ...options.headers,
++      'Authorization': `Bearer ${token}`
++    };
++
++    const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
++    const response = await fetch(fullUrl, { ...options, headers });
++
++    // Se o token for inválido ou expirar, o backend retornará 401.
++    // Nesse caso, fazemos o logout automático do usuário.
++    if (response.status === 401) {
++      handleLogout();
++      // Lança um erro para parar a execução da função que chamou o fetch.
++      throw new Error('Sessão expirada. Por favor, faça login novamente.');
++    }
++
++    return response;
++  }, []);
++
++const fetchConversations = useCallback(async () => {
++    try {
++      const response = await fetchWithAuth('/conversations');
++      if (!response.ok) { throw new Error('Falha ao buscar conversas.'); }
++      const data = await response.json();
++
++      if (data.status === 'success' && data.conversations) {
++        const newConversations = {};
++        const newStagesByConvo = {};
++
++        data.conversations.forEach(convo => {
++          const messagesArray = convo.messages || [];
++
++          // =====================================================================
++          // VOLTAMOS A USAR O OBJETO lastMessage consistentemente
++          // =====================================================================
++          const lastMessage = messagesArray.length > 0
++              ? messagesArray[messagesArray.length - 1]
++              : { content: 'Nova Conversa', sender: 'system', timestamp: 0 };
++          // Usamos o timestamp da última mensagem ou o lastUpdated do backend, o que for mais recente
++          const lastTimestampMs = Math.max(
++              convo.lastUpdated || 0,
++              lastMessage.timestamp * 1000 || 0
++          );
++          // =====================================================================
++
++          // Mapeamento de mensagens (continua igual)
++          const mappedMessages = messagesArray.map(msg => ({
++              sender: msg.sender,
++              text: msg.content,
++              timestamp: msg.timestamp,
++              message_id: msg.message_id || `${msg.sender}-${msg.timestamp}`
++          }));
++
++          // Mapeamento de Sugestões (agora usa lastMessage corretamente)
++          // (Removido pois não está sendo usado para atualizar o estado)
++          /* const currentSuggestions = convo.suggestions && convo.suggestions.length > 0 ? convo.suggestions[0] : {};
++          const mappedSuggestions = [{
++              id: `${convo.id}-${lastMessage.timestamp}`, // Usa lastMessage
++              query: lastMessage.content, // Usa lastMessage
++              // ... resto do mapeamento ...
++          }].filter(s => s.immediate_answer || (s.follow_up_options && s.follow_up_options.length > 0) || s.video);
++          */
++
++          // Lógica de Unread (continua igual)
++          const isUnread = convo.unread || false;
++
++          // Atualização do Objeto de Conversa (agora usa lastMessage corretamente)
++          console.log(`[fetchConversations] Dados recebidos para ${convo.id}: unreadCount = ${convo.unreadCount}, unread = ${convo.unread}`);
++          newConversations[convo.id] = {
++            id: convo.id,
++            name: convo.name || convo.id.split('@')[0],
++            avatarUrl: convo.avatar_url,
++            lastMessage: lastMessage.content, // Usa lastMessage
++            lastUpdated: lastTimestampMs,     // Usa o timestamp calculado
++            messages: mappedMessages,
++            unread: isUnread,
++            unreadCount: convo.unreadCount || 0,
++            clientData: convo.dados_cliente || {},
++          };
++          newStagesByConvo[convo.id] = convo.stage_id;
++
++          // NOTA: A lógica que atualizava suggestionsByConvo foi removida daqui,
++          // pois ela estava causando o "pisca-some" e não era necessária no polling.
++          // O estado de sugestões é gerenciado pelas funções handleSuggestionRequest.
++        });
++
++        setConversations(newConversations);
++        setStagesByConvo(newStagesByConvo);
++      }
++    } catch (err) { console.error("Erro no polling:", err); }
++  }, [fetchWithAuth]); // Dependência correta
++
+   useEffect(() => {
+     const savedToken = localStorage.getItem('authToken');
+     if (savedToken) {
+@@ -44,7 +148,6 @@ function App() {
+     return () => window.removeEventListener('resize', handleResize);
+   }, []);
+
+-  // Efeito para lidar com a tecla 'Escape'
+   useEffect(() => {
+     const handleKeyDown = (event) => {
+       // Verifica se a tecla pressionada foi 'Escape'
+@@ -68,7 +171,7 @@ function App() {
+     setIsLoginLoading(true);
+     setLoginError('');
+     try {
+-      const response = await fetch('http://127.0.0.1:8000/token', {
++      const response = await fetchWithAuth('/token', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+         body: new URLSearchParams({
+@@ -94,14 +197,6 @@ function App() {
+     }
+   };
+
+-  // --- NOVA FUNÇÃO DE LOGOUT ---
+-  const handleLogout = () => {
+-    localStorage.removeItem('authToken');
+-    setToken(null);
+-    setConversations({}); // Limpa os dados
+-    setActiveConversationId(null);
+-  };
+-
+
+ const handleToggleCopilot = () => {
+     setIsCopilotOpen(prevState => !prevState);
+@@ -117,7 +212,7 @@ const handleToggleCopilot = () => {
+   const handleUseSuggestion = async (suggestionId, suggestionText, suggestionField) => {
+     // 1. CHAMA O ENDPOINT REAL DE ENVIO (Evolution API via backend)
+     try {
+-        const response = await fetch('http://127.0.0.1:8000/send_seller_message', {
++            const response = await fetch(`/send_seller_message`, {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({
+@@ -167,7 +262,7 @@ const handleToggleCopilot = () => {
+     setIsLoading(true);
+     setError('');
+     try {
+-      const response = await fetch('http://127.0.0.1:8000/conversations/start_new', {
++        const response = await fetch(`/conversations/start_new`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({
+@@ -202,7 +297,7 @@ const handleToggleCopilot = () => {
+
+
+     try {
+-      const response = await fetchWithAuth('http://127.0.0.1:8000/generate_response', {
++        const response = await fetchWithAuth('/generate_response', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ query: query, conversation_id: activeConversationId, current_stage_id: currentStage }),
+@@ -250,8 +345,7 @@ const handleToggleCopilot = () => {
+     setError('');
+     const currentStage = stagesByConvo[activeConversationId] || null;
+     try {
+-        const response = await fetch('http://127.0.0.1:8000/generate_response', {
+-            method: 'POST',
++const response = await fetchWithAuth('/generate_response', {            method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ query: privateQuery, conversation_id: activeConversationId, current_stage_id: currentStage, is_private_query: true }),
+         });
+@@ -292,16 +386,24 @@ const handleToggleCopilot = () => {
+   };
+
+   // Função handleConversationSelect (final)
+-  const handleConversationSelect = (convoId) => {
+-    setActiveConversationId(String(convoId));
+-    setConversations(prev => {
+-      if (prev[convoId] && prev[convoId].unread) {
+-        const updatedConvo = { ...prev[convoId], unread: false };
+-        return { ...prev, [convoId]: updatedConvo };
+-      }
+-      return prev;
+-    });
+-  };
++const handleConversationSelect = useCallback(async (convoId) => {
++    const stringConvoId = String(convoId);
++    console.log(`[handleConversationSelect] Selecionada conversa: ${stringConvoId}`);
++    setActiveConversationId(stringConvoId);
++
++    // APENAS NOTIFICA O BACKEND. A UI será atualizada pelo próximo polling.
++    try {
++      console.log(`[handleConversationSelect] Notificando backend /mark-read...`);
++      await fetchWithAuth(`/conversations/${encodeURIComponent(stringConvoId)}/mark-read`, {
++    method: 'POST',
++});
++      console.log(`[Frontend] Notificado backend sobre leitura da conversa ${stringConvoId}.`);
++      // FORÇAR ATUALIZAÇÃO (Opcional, se o polling demorar muito):
++      // fetchConversations();
++    } catch (error) {
++      console.error(`[Frontend] Erro ao notificar backend sobre leitura da conversa ${stringConvoId}:`, error);
++    }
++  }, [fetchWithAuth]); // Removido 'conversations' da dependência
+
+   const handleCustomerMessageSubmit = (query) => {
+     // Para testar o fluxo completo, as mensagens do cliente devem vir do webhook real.
+@@ -326,105 +428,30 @@ const handleMessageDrop = (droppedText) => {
+   // solicitação de sugestão.
+   console.log(`Mensagem arrastada recebida: "${droppedText}". Solicitando sugestão...`);
+   handleSuggestionRequest(droppedText);
+-};
+-
+-const fetchWithAuth = useCallback(async (url, options = {}) => {
+-    const token = localStorage.getItem('authToken');
++}; // useCallback com array vazio garante que a função não seja recriada desnecessariamente
+
+-    // Prepara os cabeçalhos, adicionando o de Autorização
+-    const headers = {
+-      ...options.headers,
+-      'Authorization': `Bearer ${token}`
+-    };
++  // --- EFEITO PARA INICIAR O POLLING ---
++useEffect(() => {
++    let intervalId = null;
+
+-    const response = await fetch(url, { ...options, headers });
++    if (token) {
++      console.log("[Polling] Token válido. Iniciando busca inicial e intervalo.");
++      fetchConversations();
+
+-    // Se o token for inválido ou expirar, o backend retornará 401.
+-    // Nesse caso, fazemos o logout automático do usuário.
+-    if (response.status === 401) {
+-      handleLogout();
+-      // Lança um erro para parar a execução da função que chamou o fetch.
+-      throw new Error('Sessão expirada. Por favor, faça login novamente.');
++      intervalId = setInterval(fetchConversations, 5000);
++      console.log(`[Polling] Intervalo iniciado (ID: ${intervalId}).`);
++    } else {
++      console.log("[Polling] Sem token. Polling não iniciado.");
+     }
+
+-    return response;
+-  }, []); // useCallback com array vazio garante que a função não seja recriada desnecessariamente
+-
+-  // --- FUNÇÃO DE POLLING CORRIGIDA (CRÍTICA) ---
+-  const fetchConversations = useCallback(async () => {
+-    try {
+-      const response = await fetchWithAuth('http://127.0.0.1:8000/conversations');
+-      if (!response.ok) { throw new Error('Falha ao buscar conversas do backend.'); }
+-      const data = await response.json();
+-
+-      if (data.status === 'success' && data.conversations) {
+-        const newConversations = {};
+-        const newSuggestionsByConvo = {};
+-        const newStagesByConvo = {};
+-        const existingConversations = conversations;
+-
+-        data.conversations.forEach(convo => {
+-
+-          const messagesArray = convo.messages || [];
+-          const lastMessage = messagesArray.length > 0 ? messagesArray[messagesArray.length - 1] : { content: 'Nova Conversa', sender: 'system', timestamp: 0 };
+-
+-          // CRÍTICO: Mapeamento de 'content' (backend) para 'text' (ChatPanel)
+-          const mappedMessages = messagesArray.map(msg => ({
+-              sender: msg.sender,
+-              text: msg.content,  // <--- CORREÇÃO FUNDAMENTAL
+-              timestamp: msg.timestamp
+-          }));
+-
+-          // --- Mapeamento de Sugestões (Simplificado para o formato final) ---
+-          const currentSuggestions = convo.suggestions && convo.suggestions.length > 0 ? convo.suggestions[0] : {};
+-
+-          const mappedSuggestions = [{
+-              id: `${convo.id}-${lastMessage.timestamp}`,
+-              query: lastMessage.content,
+-              private_query: null,
+-              is_private: false,
+-              immediate_answer: currentSuggestions.immediate_answer || null,
+-              follow_up_options: currentSuggestions.follow_up_options || [],
+-              video: currentSuggestions.video || null,
+-          }].filter(s => s.immediate_answer || (s.follow_up_options && s.follow_up_options.length > 0) || s.video);
+-
+-          // --- ATUALIZAÇÃO DO OBJETO DE CONVERSA ---
+-          const isUnread = existingConversations[convo.id]
+-            ? (lastMessage.sender === 'cliente' && convo.id !== activeConversationId)
+-            : true;
+-
+-          newConversations[convo.id] = {
+-            id: convo.id,
+-            name: convo.name || convo.id.split('@')[0],
+-            avatarUrl: convo.avatar_url,
+-            lastMessage: lastMessage.content,
+-            lastUpdated: lastMessage.timestamp * 1000,
+-            messages: mappedMessages, // <--- ARRAY DE MENSAGENS CORRIGIDO
+-            unread: isUnread,
+-          };
+-
+-          newSuggestionsByConvo[convo.id] = mappedSuggestions;
+-          newStagesByConvo[convo.id] = convo.stage_id;
+-
+-        });
+-
+-        // Atualiza o estado:
+-        setConversations(newConversations);
+-        setStagesByConvo(newStagesByConvo);
+-
++    // FUNÇÃO DE LIMPEZA (executa no logout ou desmontagem)
++    return () => {
++      if (intervalId) {
++        clearInterval(intervalId);
++        console.log(`[Polling] Intervalo parado (ID: ${intervalId}).`);
+       }
+-    } catch (err) {
+-      console.error("Erro no polling de conversas:", err);
+-    }
+-  }, [activeConversationId, conversations]);
+-
+-
+-  // --- EFEITO PARA INICIAR O POLLING ---
+-  useEffect(() => {
+-    fetchConversations();
+-    const intervalId = setInterval(fetchConversations, 3000);
+-    return () => clearInterval(intervalId);
+-  }, [fetchConversations]);
++    };
++  }, [token]);
+
+   // ======================================================
+   // O "PORTEIRO": LÓGICA DE RENDERIZAÇÃO CONDICIONAL
+diff --git a/frontend/src/components/ChatPanel.js b/frontend/src/components/ChatPanel.js
+index 4da3892..8b71569 100644
+--- a/frontend/src/components/ChatPanel.js
++++ b/frontend/src/components/ChatPanel.js
+@@ -64,6 +64,12 @@ const handleScroll = useCallback(() => {
+     setShowScrollButton(isScrolledUp);
+   }, []);
+
++ const handleDragStart = (e, text) => {
++  // Define o texto que será "carregado" durante o arraste
++  e.dataTransfer.setData("text/plain", text);
++  console.log("[DEBUG] handleDragStart (Desktop) acionado com texto:", text); // Log de debug
++};
++
+   // ===================================================================
+   // PASSO 4 DA LÓGICA: EFEITOS DE SCROLL AUTOMÁTICO
+   // ===================================================================
+@@ -173,6 +179,8 @@ return (
+ <div
+                 className={`message-bubble ${msg.sender} ${isDraggable ? 'draggable-message' : ''}`}
+                 // Apenas os eventos de início e fim do toque são necessários aqui
++                draggable={isDraggable}
++            onDragStart={isDraggable ? (e) => handleDragStart(e, msg.text) : null}
+                 onTouchStart={isDraggable ? (e) => handleTouchStart(e, msg.text) : null}
+                 onTouchEnd={isDraggable ? handleTouchEnd : null}
+                 onContextMenu={(e) => e.preventDefault()}
+diff --git a/frontend/src/components/ConversationList.js b/frontend/src/components/ConversationList.js
+index 76ebbbb..4813c29 100644
+--- a/frontend/src/components/ConversationList.js
++++ b/frontend/src/components/ConversationList.js
+@@ -1,6 +1,6 @@
+ // Em frontend/src/components/ConversationList.js
+-import React, { useState } from 'react';
+-
++import React, { useState, useMemo } from 'react';
++import Fuse from 'fuse.js';
+ import { DEFAULT_AVATAR_URL } from '../utils/formatDisplay';
+
+ // Ícone simples de pesquisa
+@@ -14,9 +14,36 @@ const LogoutIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill="
+ function ConversationList({ conversations, activeConversationId, onConversationSelect, onNewConversationClick, onLogout }) {
+   const [searchTerm, setSearchTerm] = useState('');
+
+-  const filteredConversations = conversations.filter(convo =>
+-    convo.name.toLowerCase().includes(searchTerm.toLowerCase())
+-  );
++const fuseOptions = {
++    keys: [
++      { name: 'name', weight: 0.7 },
++      { name: 'messages.text', weight: 0.3 }
++    ],
++    includeScore: false,
++    shouldSort: true,
++    threshold: 0.4,
++    minMatchCharLength: 2,
++    // --- NOVAS OPÇÕES PARA MELHORAR BUSCA DE FRASES ---
++    ignoreLocation: true, // Permite que a frase seja encontrada em qualquer lugar do texto
++    //distance: 100,      // (Opcional) Define o quão longe as palavras podem estar (pode precisar ajustar)
++    //useExtendedSearch: false, // Desativar pode ajudar em alguns casos de busca de substring
++    // --------------------------------------------------
++    findAllMatches: false,
++  };
++
++  // Usamos useMemo para otimizar: a instância do Fuse só é recriada se a lista de conversas mudar.
++  const fuse = useMemo(() => new Fuse(conversations, fuseOptions), [conversations]);
++
++  // A filtragem agora usa o fuse.search()
++  const filteredConversations = useMemo(() => {
++    if (!searchTerm.trim() || searchTerm.trim().length < fuseOptions.minMatchCharLength) {
++      // Se a busca estiver vazia ou muito curta, retorna a lista original
++      return conversations;
++    } else {
++      // Executa a busca fuzzy e retorna os resultados (o Fuse retorna { item: convo })
++      return fuse.search(searchTerm.trim()).map(result => result.item);
++    }
++  }, [searchTerm, conversations, fuse]); // Recalcula apenas se o termo ou as conversas mudarem
+
+   return (
+   <div className="conversation-list-panel">
+@@ -40,23 +67,42 @@ function ConversationList({ conversations, activeConversationId, onConversationS
+     </div>
+
+     {/* Lista de conversas filtradas */}
+-    <div className="conversation-list">
+-      {filteredConversations.map(convo => (
+-        <div
+-          key={convo.id}
+-          className={`conversation-item ${convo.id === activeConversationId ? 'active' : ''}`}
+-          onClick={() => onConversationSelect(convo.id)}
+-        >
+-<img src={convo.avatarUrl || DEFAULT_AVATAR_URL} alt={convo.name} className="avatar" />          <div className="conversation-details">
+-            <div className="conversation-header">
+-              <span className="conversation-name">{convo.name}</span>
++<div className="conversation-list">
++        {filteredConversations.map(convo => {
++          // A lógica de encontrar a mensagem relevante para exibição continua a mesma
++          const displayMessage = searchTerm.trim() ?
++            (() => {
++              const term = searchTerm.toLowerCase();
++              const firstMatch = Array.isArray(convo.messages)
++                ? convo.messages.find(msg => msg.text && msg.text.toLowerCase().includes(term)) // Ainda usamos 'includes' aqui para highlight simples
++                : null;
++              return firstMatch ? firstMatch.text : convo.lastMessage;
++            })()
++          : convo.lastMessage;
++
++          return (
++            <div
++              key={convo.id}
++              className={`conversation-item ${convo.id === activeConversationId ? 'active' : ''}`}
++              onClick={() => onConversationSelect(convo.id)}
++            >
++              <img src={convo.avatarUrl || DEFAULT_AVATAR_URL} alt={convo.name} className="avatar" />
++              <div className="conversation-details">
++                <div className="conversation-header">
++                  <span className="conversation-name">{convo.name}</span>
++                </div>
++                {/* Exibe a mensagem relevante encontrada ou a última */}
++                <p className="last-message">{displayMessage}</p>
++              </div>
++              {convo.unread && (
++                <div className="unread-dot">
++                  {convo.unreadCount > 0 ? convo.unreadCount : ''}
++                </div>
++              )}
+             </div>
+-            <p className="last-message">{convo.lastMessage}</p>
+-          </div>
+-          {convo.unread && <div className="unread-dot"></div>}
+-        </div>
+-      ))}
+-    </div>
++          );
++        })}
++      </div>
+     <div className="conversation-list-footer">
+         <button className="logout-btn" onClick={onLogout}>
+           <LogoutIcon />
+diff --git a/frontend/src/components/CopilotPanel.js b/frontend/src/components/CopilotPanel.js
+index 2e88b5d..53885dd 100644
+--- a/frontend/src/components/CopilotPanel.js
++++ b/frontend/src/components/CopilotPanel.js
+@@ -87,6 +87,11 @@ function CopilotPanel({ isLoading, error, suggestions, onUseSuggestion, onDelete
+     const queryText = e.dataTransfer.getData("text/plain");
+     if (queryText) onMessageDrop(queryText);
+   };
++  const handleDragStart = (e, text) => {
++  // Define o texto que será "carregado" durante o arraste
++  e.dataTransfer.setData("text/plain", text);
++  console.log("[DEBUG] handleDragStart (Desktop) acionado com texto:", text); // Log de debug
++};
+
+   const isCompact = suggestions.length > 0 || isLoading;
+
+@@ -115,7 +120,7 @@ function CopilotPanel({ isLoading, error, suggestions, onUseSuggestion, onDelete
+             {suggestions.map(item => {
+               // AQUI ESTÁ A LÓGICA DE DECISÃO
+               if (item.is_private) {
+-                // SE FOR UMA CONSULTA PRIVADA, RENDERIZA O CARD SIMPLES
++                // SE FOR UMA CONSULTA PRIVADA, RENDERIZA O CARD UNIFICADO
+                 return (
+                   <div key={item.id} className="suggestion-group">
+                     {/* O card agora contém tanto a pergunta quanto a resposta */}
+@@ -123,7 +128,8 @@ function CopilotPanel({ isLoading, error, suggestions, onUseSuggestion, onDelete
+
+                       {/* A pergunta agora é o cabeçalho do card */}
+                       <div className="card-header private-header">
+-                        <h3>Sua pergunta: "{item.private_query}"</h3>
++                        {/* Usamos a blockquote aqui dentro */}
++                        <blockquote className="suggestion-query private-query-title">Sua pergunta: "{item.private_query}"</blockquote>
+                         <button className="suggestion-delete-btn" onClick={() => onDeleteSuggestion(item.id)}>
+                           <CloseIcon />
+                         </button>
+diff --git a/frontend/src/index.css b/frontend/src/index.css
+index 23ebd9f..e4dad81 100644
+--- a/frontend/src/index.css
++++ b/frontend/src/index.css
+@@ -938,4 +938,56 @@ body {
+   .login-form-wrapper {
+     background: linear-gradient(160deg, #0d1117, #1a2c3a);
+   }
++}
++.unread-dot {
++  position: absolute;
++  right: 1rem;
++  top: 50%;
++  transform: translateY(-50%);
++
++  /* Cria um círculo perfeito de tamanho fixo */
++  width: 20px;
++  height: 20px;
++  /* Removemos o padding para simplificar */
++
++  background-color: var(--primary-blue);
++  color: white; /* Garante a cor do número */
++  border-radius: 50%; /* Círculo perfeito */
++
++  /* Centraliza o número usando flexbox */
++  display: flex;
++  align-items: center;
++  justify-content: center;
++
++  /* Define o tamanho e peso da fonte */
++  font-size: 0.75rem; /* ~12px */
++  font-weight: bold;
++  line-height: 1; /* Garante que a altura da linha não empurre o número */
++
++  box-shadow: 0 0 5px var(--primary-blue);
++}
++
++.suggestion-card-private .private-header {
++  margin-bottom: 1rem;
++  padding-bottom: 1rem;
++  border-bottom: 1px solid var(--border-color);
++  /* Garante que a blockquote se comporte bem com o botão */
++  display: flex;
++  align-items: flex-start; /* Alinha no topo */
++}
++
++/* Ajusta a blockquote para servir como título */
++.suggestion-card-private .private-query-title {
++  margin: 0; /* Remove margens padrão da blockquote */
++  padding: 0; /* Remove paddings padrão */
++  border-left: none; /* Remove a borda azul */
++  background-color: transparent; /* Remove o fundo */
++  color: var(--text-secondary);
++  font-style: italic;
++  font-size: 1rem;
++  flex-grow: 1; /* Faz ocupar o espaço */
++}
++
++.suggestion-card-private p {
++  padding-left: 0.5rem; /* Um pequeno recuo para a resposta */
+ }
+\ No newline at end of file
