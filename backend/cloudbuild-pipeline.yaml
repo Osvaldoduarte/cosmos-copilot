@@ -1,16 +1,7 @@
-steps:
-# --- NOVO PASSO DE DEBUG ---
-- name: 'ubuntu' # Usa uma imagem simples com 'cat'
-  entrypoint: 'bash'
-  args:
-    - '-c'
-    - |
-      echo "--- Conteúdo de scripts/gerenciar_pipeline.py no contexto do build ---"
-      cat scripts/gerenciar_pipeline.py || echo "ERRO: Não foi possível ler scripts/gerenciar_pipeline.py"
-      echo "---------------------------------------------------------------------"
-# --- FIM DO PASSO DE DEBUG ---
+# backend/cloudbuild-pipeline.yaml (VERSÃO LIMPA)
 
-# Passo original do Docker build
+steps:
+# 0. Constrói a imagem da pipeline (com ffmpeg/numpy)
 - name: 'gcr.io/cloud-builders/docker'
   args: [
           'build',
@@ -21,5 +12,37 @@ steps:
           'scripts/Dockerfile.pipeline',
           '.'
         ]
+  dir: 'backend'
+
+# 1. Baixa e descompacta os ativos de dados do GCS
+- name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      echo "--- Instalando unzip e baixando ativos do GCS ---"
+      apt-get update && apt-get install -y unzip || apk add unzip
+
+      # Entra na pasta 'backend' (relativo ao /workspace)
+      cd backend 
+      
+      gsutil cp gs://cosmos-copilot-data-assets/data.zip .
+      gsutil cp gs://cosmos-copilot-data-assets/videos.zip .
+      unzip data.zip
+      unzip videos.zip
+      echo "✅ Ativos baixados e descompactados."
+  # O 'dir' é removido para que o 'cd backend' funcione
+  # a partir da raiz do /workspace
+
+# 2. Executa a Pipeline
+- name: 'gcr.io/$PROJECT_ID/cosmos-pipeline'
+  entrypoint: 'python'
+  args:
+    - 'scripts/gerenciar_pipeline.py'
+  dir: 'backend'
+  env:
+    - 'CHROMA_HOST=${_CHROMA_HOST}'
+    - 'GEMINI_API_KEY=${_GEMINI_API_KEY}'
+
 images:
 - 'gcr.io/$PROJECT_ID/cosmos-pipeline'

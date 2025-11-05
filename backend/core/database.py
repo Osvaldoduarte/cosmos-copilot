@@ -1,5 +1,6 @@
 from typing import Dict, Optional
 
+
 # Simulação do nosso banco de dados de usuários.
 # No futuro, isso pode ser substituído por uma consulta a um banco de dados real.
 

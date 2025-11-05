@@ -1,4 +1,5 @@
-# Arquivo: backend/scripts/transcribe_videos.py
+# Em backend/scripts/transcribe_videos.py
+# (SUBSTITUA o conteúdo deste arquivo)
 
 import os
 import json
@@ -7,16 +8,31 @@ from pathlib import Path
 from pytube import YouTube
 import re
 
-# --- CONFIGURAÇÃO DE CAMINHOS ---
+# --- 💡 CORREÇÃO: Bloco de 'load_dotenv' movido para o topo ---
+from dotenv import load_dotenv
+
+# Define o caminho absoluto para a raiz do backend (um nível acima de 'scripts')
 BACKEND_DIR = Path(__file__).parent.parent.resolve()
+env_path = BACKEND_DIR / ".env"
+
+if not env_path.exists():
+    print(f"⚠️  Atenção [transcribe]: Arquivo .env não encontrado em {env_path}")
+else:
+    load_dotenv(dotenv_path=env_path)
+    print(f"✅ [transcribe] Variáveis de ambiente carregadas.")
+# --- Fim da Correção ---
+
+
+# --- CONFIGURAÇÃO DE CAMINHOS ---
 DATA_DIR = BACKEND_DIR / "data"
-LINKS_FILE = BACKEND_DIR / "youtube_links.txt"
+# 💡 CORREÇÃO: O arquivo de links está na pasta 'scripts'
+LINKS_FILE = BACKEND_DIR / "scripts" / "youtube_links.txt"
 TEMP_DIR = BACKEND_DIR / "temp_audio"
 
 
 def sanitize_filename(name):
     """Remove caracteres inválidos para nomes de arquivo."""
-    return re.sub(r'[\\/*?:"<>|]', "", name)
+    return re.sub(r'[\\/*?:\"<>|]', "", name)
 
 
 def transcribe_youtube_videos():
@@ -37,28 +53,32 @@ def transcribe_youtube_videos():
     # --- Processar links do YouTube ---
     if not LINKS_FILE.exists():
         print(
-            f"❌ ERRO: Arquivo 'youtube_links.txt' não encontrado na pasta 'backend'. Crie este arquivo com os links dos vídeos.")
+            f"❌ ERRO: Arquivo 'youtube_links.txt' não encontrado em '{LINKS_FILE}'. Crie este arquivo com os links dos vídeos.")
         return
 
     with open(LINKS_FILE, 'r') as f:
-        urls = [line.strip() for line in f if line.strip().startswith("http")]
+        urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
-    print(f"\nINFO: Encontrados {len(urls)} links no arquivo '{LINKS_FILE.name}'.")
+    if not urls:
+        print("INFO: 'youtube_links.txt' está vazio ou contém apenas comentários. Pulando transcrição.")
+        return
+
+    print(f"INFO: Encontrados {len(urls)} links de vídeo para processar.")
 
     for url in urls:
         try:
             yt = YouTube(url)
-            # Cria um nome de arquivo seguro a partir do título para evitar erros
+
+            # Remove caracteres inválidos do título para criar um nome de arquivo
             safe_title = sanitize_filename(yt.title)
-            # Usa o ID do vídeo para garantir um nome de arquivo único
-            json_name = f"youtube_{yt.video_id}_{safe_title[:50]}.json"
+            json_name = f"transcricao_{safe_title[:50]}.json"
             json_path = DATA_DIR / json_name
 
             if json_path.exists():
                 print(f"⏭️  Pulando '{yt.title}', transcrição já existe.")
                 continue
 
-            print(f"\n baixando áudio de: '{yt.title}'...")
+            print(f"\n⬇️  Baixando áudio de: '{yt.title}'...")
             audio_stream = yt.streams.filter(only_audio=True).first()
             downloaded_audio_path = audio_stream.download(output_path=str(TEMP_DIR))
             print("✅ Áudio baixado com sucesso.")
@@ -72,7 +92,7 @@ def transcribe_youtube_videos():
                     "text": segment["text"].strip(),
                     "start": segment["start"],
                     "end": segment["end"],
-                    "video_name": url
+                    "video_name": url  # Salva a URL original
                 })
 
             with open(json_path, 'w', encoding='utf-8') as f:
@@ -90,4 +110,5 @@ def transcribe_youtube_videos():
 
 
 if __name__ == "__main__":
+    # O .env já foi carregado no topo.
     transcribe_youtube_videos()

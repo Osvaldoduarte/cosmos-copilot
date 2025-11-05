@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-// Um ícone de "brilho/IA" para representar o Copilot
+// Um ícone de "brilho/IA" para representar o Copilot (Restaurado)
 const CopilotLogo = () => (
   <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path d="M12 2L9 9L2 12L9 15L12 22L15 15L22 12L15 9L12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -8,60 +8,62 @@ const CopilotLogo = () => (
   </svg>
 );
 
+
 function Login({ onLogin, error, isLoading }) {
+
+  // --- CORREÇÃO: Define o estado para os inputs ---
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
 
+  // Handler para o envio do formulário
   const handleSubmit = (e) => {
-    e.preventDefault();
-    onLogin(username, password);
+    e.preventDefault(); // Impede o recarregamento da página
+    if (!isLoading) {
+      // Chama a função 'handleLogin' (do useAuth)
+      onLogin(username, password);
+    }
   };
 
+  // O JSX (HTML) do seu formulário de login
   return (
-    <div className="login-page">
-      {/* Coluna da Esquerda: Branding */}
-      <div className="login-branding">
-        <div className="branding-content">
-          <CopilotLogo />
-          <h1>VENAI</h1>
-          <p>Sua central de vendas inteligente.</p>
+    <div className="login-container">
+      <div className="login-box">
+
+        {/* CORREÇÃO: Restaurando o ícone "tech" e o título */}
+        <div className="login-header">
+            <CopilotLogo />
+            <h2>Cosmos Copilot</h2>
         </div>
-      </div>
 
-      {/* Coluna da Direita: Formulário */}
-      <div className="login-form-wrapper">
-        <form className="login-form" onSubmit={handleSubmit}>
-          <h2>Acesse sua conta</h2>
-          <p>Bem-vindo de volta! Por favor, insira seus dados.</p>
 
+        <form onSubmit={handleSubmit}>
           <div className="input-group">
-            <label htmlFor="username">Usuário</label>
+            <label htmlFor="username">Usuário (Email)</label>
             <input
-              id="username"
               type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              id="username"
+              value={username} // Controlado pelo estado
+              onChange={(e) => setUsername(e.target.value)} // Atualiza o estado
               required
-              disabled={isLoading}
             />
           </div>
 
           <div className="input-group">
             <label htmlFor="password">Senha</label>
             <input
-              id="password"
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              id="password"
+              value={password} // Controlado pelo estado
+              onChange={(e) => setPassword(e.target.value)} // Atualiza o estado
               required
-              disabled={isLoading}
             />
           </div>
 
-          {error && <p className="login-error-message">{error}</p>}
+          {/* Exibe o erro 401 vindo do useAuth */}
+          {error && <div className="error-message">{error}</div>}
 
           <button type="submit" className="login-button" disabled={isLoading}>
-            {isLoading ? 'Entrando...' : 'Entrar'}
+            {isLoading ? 'Carregando...' : 'Entrar'}
           </button>
         </form>
       </div>

@@ -28,7 +28,10 @@ body {
   overflow: hidden; /* Impede a rolagem da página inteira */
 }
 
-
+#root, .app-container, .mobile-layout {
+  height: 100vh;
+  overflow: hidden;
+}
 /* ===================================================================
    2. LAYOUT PRINCIPAL (PAINÉIS REDIMENSIONÁVEIS)
    =================================================================== */
@@ -55,7 +58,10 @@ body {
   width: 2px;
 }
 
-/* Força o scroll interno nos painéis da biblioteca */
+/* NOTA: A regra !important abaixo é muitas vezes necessária para
+  sobrescrever os estilos inline da biblioteca react-resizable-panels.
+  Evite-a se puder, mas pode ser necessária.
+*/
 [data-panel-id][data-panel-group-direction="horizontal"] > div {
   overflow-y: auto !important;
 }
@@ -135,42 +141,48 @@ body {
 .conversation-item {
   display: flex;
   align-items: center;
-  padding: 0.75rem 1rem;
+  gap: 12px; /* Espaço entre o avatar e o texto */
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
   cursor: pointer;
-  transition: background-color 0.2s;
-  position: relative;
+  transition: background-color 0.2s ease;
+}
+
+.conversation-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover; /* Impede que a imagem estique */
+  flex-shrink: 0; /* Impede que o avatar encolha */
 }
 .conversation-item:hover { background-color: #202c33; }
-.conversation-item.active { background-color: #2a3942; }
+.conversation-item:hover:not(.active) {
+  background-color: var(--surface-dark-2);
+}
+.conversation-item.active {
+  background-color: var(--primary-blue);
+}
+/* A classe '.avatar' foi removida por não ser utilizada */
 
-.avatar { width: 50px; height: 50px; border-radius: 50%; margin-right: 1rem; }
 .conversation-details { flex-grow: 1; overflow: hidden; }
 .conversation-header { display: flex; justify-content: space-between; align-items: center; }
 .conversation-name { font-weight: 600; color: var(--text-light); }
 .last-message { font-size: 0.9rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.unread-dot {
-  position: absolute;
-  right: 1rem;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 10px;
-  height: 10px;
-  background-color: var(--primary-blue);
-  border-radius: 50%;
-  box-shadow: 0 0 5px var(--primary-blue);
-}
+/* NOTA: A primeira definição de .unread-dot (ponto simples)
+  foi removida por ser um conflito com a definição posterior
+  (círculo com número).
+*/
 
 
 /* ===================================================================
    4. COLUNA 2: PAINEL DO CHAT
    =================================================================== */
 .chat-panel {
-  width: 100%;
-  height: 100%;
-  border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
+  height: 100%; /* Garante que o painel ocupe 100% da altura (seja no mobile ou no <Panel>) */
+  background-color: var(--surface-dark-1);
 }
 
 .welcome-panel {
@@ -222,26 +234,23 @@ body {
   background-color: rgba(11, 20, 26, 0.85);
 }
 
-.message-bubble-wrapper { display: flex; }
-.message-bubble-wrapper.cliente { justify-content: flex-start; }
-.message-bubble-wrapper.vendedor { justify-content: flex-end; }
-.message-bubble-wrapper.system { justify-content: center; }
+/* NOTA: As regras '.message-bubble-wrapper' e '.message-bubble.cliente' / '.vendedor'
+  foram removidas. O ChatPanel.js usa a nomenclatura '.message-client' /
+  '.message-bubble-client', que está definida mais abaixo (linha 754).
+*/
 
-.message-bubble {
+.message-bubble.system {
+  justify-content: center;
+  background-color: #2c3e50;
+  color: #bdc3c7;
+  font-style: italic;
+  font-size: 0.85rem;
+  /* Estilos .message-bubble.system movidos para cá */
+  margin: 0 auto;
   padding: 0.6rem 1rem;
   border-radius: 12px;
   max-width: 80%;
-  word-wrap: break-word;
-  line-height: 1.5;
-  box-shadow: 0 1px 1px rgba(0,0,0,0.1);
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
 }
-.message-bubble p { margin: 0 0 4px 0; }
-.message-bubble.cliente { background-color: var(--client-bubble); border-bottom-left-radius: 4px; }
-.message-bubble.vendedor { background-color: var(--seller-bubble); color: white; border-bottom-right-radius: 4px; }
-.message-bubble.system { background-color: #2c3e50; color: #bdc3c7; font-style: italic; font-size: 0.85rem; }
 
 .message-metadata { align-self: flex-end; display: flex; align-items: center; gap: 0.25rem; }
 .message-timestamp { font-size: 0.75rem; color: var(--text-secondary); opacity: 0.8; }
@@ -440,6 +449,7 @@ body {
 .suggestion-delete-btn:hover { background-color: var(--surface-dark-1); color: var(--text-light); }
 .video-card { margin-top: 1rem; }
 
+/* Esta é a classe de erro genérica usada no Copilot e no Login */
 .error-message {
   text-align: center;
   padding: 1rem;
@@ -618,8 +628,16 @@ body {
 }
 
 .app-container {
-    height: 100vh;
-  width: 100vw;
+    display: flex; /* ou grid */
+    height: 100vh; /* CRÍTICO: Garante que o layout ocupe a tela inteira */
+    width: 100vw;
+    overflow: hidden; /* O overflow deve ser tratado pelos painéis internos */
+}
+
+.desktop-layout {
+    display: flex;
+    flex: 1; /* Ocupa o espaço do app-container */
+    height: 100%; /* Ocupa a altura do app-container */
 }
 /* Em frontend/src/index.css */
 
@@ -659,8 +677,6 @@ body {
   .copilot-panel {
     padding: 1rem; /* Menos preenchimento em telas menores */
   }
-
-}
 
 /* Em index.css, DENTRO de @media (max-width: 768px) */
 
@@ -718,8 +734,12 @@ body {
     justify-content: center;
     border: 1px solid var(--surface-dark-1); /* Borda da cor do fundo */
   }
+/* NOTA: Esta é a chave '}' que fecha a @media query.
+  Ela foi movida para cá para incluir os estilos mobile acima.
+*/
+}
 
-  /* Em index.css */
+/* Em index.css */
 
 .draggable-message:hover { cursor: grab; }
 .draggable-message:active { cursor: grabbing; }
@@ -742,8 +762,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.2); /* Fundo levemente escurecido */
-  z-index: 2000;
+  z-index: 1000;
 }
 
 .message-context-menu {
@@ -751,23 +770,20 @@ body {
   background-color: var(--surface-dark-2);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  padding: 0.5rem;
-  min-width: 180px;
-  animation: popIn 0.15s ease-out;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  padding: 8px;
+  z-index: 1001;
 }
 
 .message-context-menu button {
-  width: 100%;
   background: none;
   border: none;
   color: var(--text-light);
-  padding: 0.75rem 1rem;
+  padding: 8px 12px;
+  width: 100%;
   text-align: left;
-  border-radius: 4px;
   cursor: pointer;
-  font-size: 0.95rem;
-  transition: background-color 0.2s;
+  border-radius: 4px;
 }
 
 .message-context-menu button:hover {
@@ -805,67 +821,42 @@ body {
 /* ===================================================================
    12. ESTILOS PARA A PÁGINA DE LOGIN
    =================================================================== */
-
-.login-page {
+/* NOTA: A Seção 12 foi completamente reescrita para corresponder
+  ao componente 'Login.js' (que usa .login-container e .login-box)
+  em vez do layout anterior de 2 colunas que não era usado.
+*/
+.login-container {
   display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100vw;
   height: 100vh;
-  background-color: var(--surface-dark-1);
+  background: linear-gradient(160deg, #0d1117, #1a2c3a);
 }
 
-/* Coluna da Esquerda (Branding) */
-.login-branding {
-  flex: 1;
+.login-box {
+  background-color: var(--surface-dark-1);
+  padding: 2.5rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  width: 100%;
+  max-width: 400px;
+}
+
+.login-header {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  background: linear-gradient(160deg, #0d1117, #1a2c3a);
-  color: var(--text-light);
-  padding: 2rem;
-  text-align: center;
-}
-
-.branding-content svg {
+  gap: 1rem;
+  margin-bottom: 2rem;
   color: var(--primary-blue);
-  margin-bottom: 1rem;
 }
 
-.branding-content h1 {
-  font-size: 2.5rem;
+.login-header h2 {
   margin: 0;
-  font-weight: 700;
-}
-
-.branding-content p {
-  font-size: 1.1rem;
-  color: var(--text-secondary);
-}
-
-/* Coluna da Direita (Formulário) */
-.login-form-wrapper {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem;
-}
-
-.login-form {
-  width: 100%;
-  max-width: 380px;
-}
-
-.login-form h2 {
-  font-size: 2rem;
-  font-weight: 600;
-  margin-top: 0;
-  margin-bottom: 0.5rem;
-}
-
-.login-form p {
-  color: var(--text-secondary);
-  margin-bottom: 2.5rem;
+  font-size: 1.8rem;
+  color: var(--text-light);
 }
 
 .input-group {
@@ -879,7 +870,8 @@ body {
   font-size: 0.9rem;
 }
 
-.login-form input {
+.login-box input[type="text"],
+.login-box input[type="password"] {
   width: 100%;
   padding: 0.8rem 1rem;
   border-radius: 8px;
@@ -890,7 +882,8 @@ body {
   transition: border-color 0.2s;
 }
 
-.login-form input:focus {
+.login-box input[type="text"]:focus,
+.login-box input[type="password"]:focus {
   outline: none;
   border-color: var(--primary-blue);
   box-shadow: 0 0 0 3px rgba(47, 129, 247, 0.2);
@@ -919,26 +912,17 @@ body {
   cursor: not-allowed;
 }
 
-.login-error-message {
-  text-align: center;
-  padding: 0.75rem;
-  background-color: rgba(248, 81, 73, 0.1);
-  border: 1px solid var(--error-red);
-  color: var(--error-red);
-  border-radius: 8px;
+/* A classe .error-message genérica (linha 462) será aplicada */
+/* Esta regra adiciona uma margem específica para o erro no form de login */
+.login-box .error-message {
   margin-top: 1.5rem;
-  font-size: 0.9rem;
+  margin-bottom: 0; /* Evita dupla margem se o botão estiver abaixo */
 }
 
-/* Responsividade para a tela de login em telas pequenas */
-@media (max-width: 768px) {
-  .login-branding {
-    display: none; /* Esconde a coluna da esquerda */
-  }
-  .login-form-wrapper {
-    background: linear-gradient(160deg, #0d1117, #1a2c3a);
-  }
-}
+/* ===================================================================
+   (FIM DA SEÇÃO 12 REESCRITA)
+   =================================================================== */
+
 .unread-dot {
   position: absolute;
   right: 1rem;
@@ -990,4 +974,98 @@ body {
 
 .suggestion-card-private p {
   padding-left: 0.5rem; /* Um pequeno recuo para a resposta */
+}
+/* Garante que o painel de conversas tenha as propriedades visuais */
+.conversation-panel {
+    background-color: var(--surface-dark-1);
+    min-width: 280px;
+    /* Outros estilos visuais */
+}
+
+/* Garante que o handle de redimensionamento seja visível e tenha o comportamento correto */
+.custom-resize-handle {
+    width: 8px; /* O manipulador deve ter uma largura */
+    background-color: var(--border-color);
+    cursor: col-resize;
+    /* Outros estilos */
+}
+
+/* Garante que o painel de chat ocupe o espaço restante */
+/* .chat-panel já está definido na Seção 4 */
+
+
+/* REGRAS CRÍTICAS PARA O CHAT PANEL */
+/* A maioria destas regras já está definida na Seção 4 */
+
+/* Cabeçalho do Chat */
+.chat-header {
+    flex-shrink: 0; /* Impede que o header encolha */
+    display: flex;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--surface-dark-1); /* Ou a cor desejada */
+}
+
+/* Avatar no Cabeçalho */
+.chat-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    margin-right: 10px;
+}
+
+/* Área de Input de Mensagens (Rodapé) */
+/* .chat-input-area já está definido na Seção 4 */
+
+.chat-messages {
+  flex: 1; /* Faz este 'div' ocupar todo o espaço restante */
+  overflow-y: auto; /* ATIVA O SCROLL vertical quando necessário */
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px; /* Espaçamento entre as bolhas de mensagem */
+}
+
+/* O Formulário dentro da área de input */
+/* .chat-form já está definido na Seção 4 */
+
+/* O Input (Campo de texto) */
+/* .chat-input-area input[type="text"] já está definido na Seção 4 */
+
+/* Botões de Ícone (Anexo/Enviar) */
+/* .icon-button já está definido na Seção 4 */
+
+.message-bubble-row {
+  display: flex;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+/* 💡 CORREÇÃO: Alinha as mensagens do cliente à esquerda */
+.message-client {
+  justify-content: flex-start;
+}
+
+/* 💡 CORREÇÃO: Alinha as mensagens do vendedor à direita */
+.message-seller {
+  justify-content: flex-end;
+}
+
+/* A bolha (cor de fundo) */
+.message-bubble {
+  padding: 10px 14px;
+  border-radius: 18px;
+  max-width: 70%;
+  word-wrap: break-word;
+}
+
+.message-bubble-client {
+  background-color: var(--client-bubble);
+  border-top-left-radius: 4px;
+}
+
+.message-bubble-seller {
+  background-color: var(--seller-bubble);
+  border-top-right-radius: 4px;
 }

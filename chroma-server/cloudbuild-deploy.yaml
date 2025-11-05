@@ -1,0 +1,20 @@
+# chroma-server/cloudbuild-deploy.yaml
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/chroma-server', '.']
+  dir: 'chroma-server'
+
+# O Passo 2 foi corrigido para usar a imagem oficial 'gcloud'
+- name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash' # Define explicitamente o bash como ponto de entrada
+  args: ['./deploy-chroma-server.sh']
+  dir: 'chroma-server'
+  # INJEÇÃO DE TODAS AS VARIÁVEIS NECESSÁRIAS
+  env:
+    - 'SQL_INSTANCE_CONNECTION_NAME=${_SQL_INSTANCE_CONNECTION_NAME}'
+    - 'DB_SECRET_NAME=${_DB_SECRET_NAME}'
+    - 'REGION=${_REGION}'
+    - 'SERVICE_NAME=${_SERVICE_NAME}'
+
+images:
+- 'gcr.io/$PROJECT_ID/chroma-server'

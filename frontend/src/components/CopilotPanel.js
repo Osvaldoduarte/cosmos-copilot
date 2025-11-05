@@ -1,189 +1,109 @@
-// Arquivo: frontend/src/components/CopilotPanel.js (Versão Final e Completa)
+// Em frontend/src/components/CopilotPanel.js
+// (SUBSTITUA o conteúdo deste arquivo)
 
-import React, { useState, useEffect } from 'react';
-import VideoSuggestionCard from './VideoSuggestionCard';
+import React, { useState, useMemo } from 'react';
+import { useChat } from '../context/ChatContext';
+// 💡 REMOVIDO: import { Droppable } from 'react-beautiful-dnd';
 
-// --- ÍCONES ---
-const SpinnerIcon = () => ( <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 4.75V6.25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path><path d="M17.125 6.875L16.065 7.935" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path><path d="M19.25 12L17.75 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path><path d="M17.125 17.125L16.065 16.065" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path><path d="M12 17.75V19.25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path><path d="M6.875 17.125L7.935 16.065" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path><path d="M4.75 12L6.25 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path><path d="M6.875 6.875L7.935 7.935" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path></svg> );
-const DragDropIcon = () => ( <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 16.5V3M12 3L15.5 6.5M12 3L8.5 6.5M4 13.5V20C4 20.5523 4.44772 21 5 21H19C19.5523 21 20 20.5523 20 20V13.5" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg> );
-const CloseIcon = () => ( <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg> );
-
-// --- SUB-COMPONENTES ---
-
-// Componente para renderizar o texto das sugestões
-const TonalSuggestionCard = ({ title, options, onUseSuggestion, is_private, onDelete }) => {
-  const [activeText, setActiveText] = useState('');
-  useEffect(() => {
-    if (options && options.length > 0) {
-      const recommendedOption = options.find(opt => opt.is_recommended) || options[0];
-      setActiveText(recommendedOption.text);
-    }
-  }, [options]);
-
-  if (!options || !options[0] || !options[0].text) return null;
-
-  return (
-    <div className="response-card suggestion-card">
-      <div className="card-header">
-        <h3>{title}</h3>
-        {is_private ? (
-          <button className="suggestion-delete-btn" onClick={onDelete}><CloseIcon /></button>
-        ) : (
-          <button className="use-suggestion-btn" onClick={() => onUseSuggestion(activeText)}>Usar esta resposta</button>
-        )}
-      </div>
-      <p style={{ whiteSpace: 'pre-wrap' }}>{activeText}</p>
-    </div>
-  );
-};
-
-// Componente para a área de interação inferior (input + drag-drop)
-const InteractionArea = ({ onQuerySubmit, compact }) => {
-    const [query, setQuery] = useState('');
-    const handleSubmit = (e) => { e.preventDefault(); if (!query.trim()) return; onQuerySubmit(query); setQuery(''); };
-    const containerClass = compact ? "interaction-area compact" : "interaction-area";
-    return (
-        <div className={containerClass}>
-            <form onSubmit={handleSubmit} className="private-query-form">
-                <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pergunte algo para a IA..." />
-                <button type="submit">Analisar</button>
-            </form>
-            <div className="drag-drop-prompt"><DragDropIcon /><p>Ou arraste uma mensagem do cliente aqui.</p></div>
-        </div>
-    );
-};
-
-// Componente de Animação de Carregamento
-const LoadingAnimation = () => {
-  const loadingTexts = [ "Analisando histórico...", "Consultando base de conhecimento...", "Avaliando estratégia...", "Formulando sugestões..." ];
-  const [currentIndex, setCurrentIndex] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentIndex((prevIndex) => (prevIndex + 1) % loadingTexts.length);
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [loadingTexts.length]);
-
-  return (
-    <div className="loading-animation-card">
-      <div className="loading-spinner-icon">
-        <SpinnerIcon />
-      </div>
-      <p key={currentIndex} className="fade-in-text">{loadingTexts[currentIndex]}</p>
-    </div>
-  );
-};
+// --- Ícones ---
+const ClearSuggestionsIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke="currentColor" strokeWidth="2" fill="none"/></svg>);
+// 💡 REMOVIDO: const DragDropIcon = () => (...)
+// --- Fim dos Ícones ---
 
 
-// --- COMPONENTE PRINCIPAL ---
-// Arquivo: frontend/src/components/CopilotPanel.js (versão reordenada)
+function CopilotPanel() {
+  const [privateQuery, setPrivateQuery] = useState('');
 
-function CopilotPanel({ isLoading, error, suggestions, onUseSuggestion, onDeleteSuggestion, onMessageDrop, onClearSuggestions, onPrivateQuerySubmit }) {
-  const handleDragOver = (e) => e.preventDefault();
+  const {
+    activeConversationId,
+    suggestionsByConvo,
+    handlePrivateSuggestionRequest,
+    handleUseSuggestion,
+    handleDeleteSuggestion,
+    handleClearSuggestions,
+  } = useChat(); // 💡 handleMessageDrop removido daqui
 
-  const handleDrop = (e) => {
+  const isChatLoading = false;
+  const chatError = null;
+
+  const activeSuggestions = useMemo(() => {
+    if (!activeConversationId) return [];
+    return suggestionsByConvo[activeConversationId]?.suggestions || [];
+  }, [activeConversationId, suggestionsByConvo]);
+
+  const activeVideo = useMemo(() => {
+    if (!activeConversationId) return null;
+    return suggestionsByConvo[activeConversationId]?.video || null;
+  }, [activeConversationId, suggestionsByConvo]);
+
+  const handlePrivateQuerySubmit = (e) => {
     e.preventDefault();
-    const queryText = e.dataTransfer.getData("text/plain");
-    if (queryText) onMessageDrop(queryText);
+    if (privateQuery.trim()) {
+      handlePrivateSuggestionRequest(privateQuery);
+      setPrivateQuery('');
+    }
   };
-  const handleDragStart = (e, text) => {
-  // Define o texto que será "carregado" durante o arraste
-  e.dataTransfer.setData("text/plain", text);
-  console.log("[DEBUG] handleDragStart (Desktop) acionado com texto:", text); // Log de debug
-};
-
-  const isCompact = suggestions.length > 0 || isLoading;
 
   return (
-    <div className="copilot-panel" onDragOver={handleDragOver} onDrop={handleDrop}>
+    <div className="copilot-panel">
+      {/* --- CABEÇALHO --- */}
       <div className="copilot-header">
-        {suggestions.length > 0 && !isLoading && (
-          <button className="clear-suggestions-btn" onClick={onClearSuggestions}><CloseIcon /> Limpar sugestões</button>
-        )}
+        <h4>Copilot (IA)</h4>
+        <button
+          className="clear-suggestions-btn"
+          onClick={() => handleClearSuggestions()}
+        >
+          <ClearSuggestionsIcon />
+        </button>
       </div>
 
-      {error && <div className="error-message">{error}</div>}
-
-      <div className="copilot-content-wrapper">
-        <div className="interaction-area-container">
-          <InteractionArea
-            onQuerySubmit={onPrivateQuerySubmit}
-            compact={isCompact}
+      {/* --- INPUT PRIVADO --- */}
+      {/* 💡 CORREÇÃO: Removido o Droppable */}
+      <div className="copilot-input">
+        <form onSubmit={handlePrivateQuerySubmit}>
+          <input
+            type="text"
+            value={privateQuery}
+            onChange={(e) => setPrivateQuery(e.target.value)}
+            placeholder="Perguntar algo à IA..."
           />
+          <button type="submit">Enviar</button>
+        </form>
+
+        {/* 💡 CORREÇÃO: Removida a área de Drag-and-Drop */}
+        {/* <div className="drag-drop-prompt"> ... </div> */}
+      </div>
+
+      {/* --- LISTA DE SUGESTÕES --- */}
+      <div className="copilot-output">
+        {isChatLoading && <div className="loading-placeholder">Gerando sugestão...</div>}
+        {chatError && <div className="error-message">{chatError}</div>}
+
+        {/* <VideoSuggestionCard video={activeVideo} /> (Seu componente) */}
+
+        <div className="suggestions-list">
+          {activeSuggestions.length > 0 ? (
+            activeSuggestions.map((sug) => (
+              <div key={sug.id} className="suggestion-card">
+                <p>{sug.text}</p>
+                <button onClick={() => handleUseSuggestion(sug.id, sug.text)}>
+                  Usar
+                </button>
+                <button onClick={() => handleDeleteSuggestion(sug.id)}>
+                  X
+                </button>
+              </div>
+            ))
+          ) : (
+            !isChatLoading && (
+              <div className="empty-placeholder">
+                Use o clique direito em uma<br/>
+                mensagem do cliente para<br/>
+                enviar à IA.
+              </div>
+            )
+          )}
         </div>
-
-        {isLoading && <LoadingAnimation />}
-
-{suggestions.length > 0 && (
-          <div className="copilot-output">
-            {suggestions.map(item => {
-              // AQUI ESTÁ A LÓGICA DE DECISÃO
-              if (item.is_private) {
-                // SE FOR UMA CONSULTA PRIVADA, RENDERIZA O CARD UNIFICADO
-                return (
-                  <div key={item.id} className="suggestion-group">
-                    {/* O card agora contém tanto a pergunta quanto a resposta */}
-                    <div className="response-card suggestion-card suggestion-card-private">
-
-                      {/* A pergunta agora é o cabeçalho do card */}
-                      <div className="card-header private-header">
-                        {/* Usamos a blockquote aqui dentro */}
-                        <blockquote className="suggestion-query private-query-title">Sua pergunta: "{item.private_query}"</blockquote>
-                        <button className="suggestion-delete-btn" onClick={() => onDeleteSuggestion(item.id)}>
-                          <CloseIcon />
-                        </button>
-                      </div>
-
-                      {/* A resposta da IA */}
-                      {item.immediate_answer && (
-                        <p>{item.immediate_answer}</p>
-                      )}
-                    </div>
-                  </div>
-                );
-              } else {
-                // SE FOR UMA SUGESTÃO PARA O CLIENTE, RENDERIZA O LAYOUT COMPLETO
-                return (
-                  <div key={item.id} className="suggestion-group">
-                    {item.query && ( <blockquote className="suggestion-query">Referente a: "{item.query}"</blockquote> )}
-
-                    {/* Card de Resposta Imediata (para o cliente) */}
-                    {item.immediate_answer && (
-                      <div className="response-card suggestion-card">
-                        <div className="card-header">
-                          <h3>💡 Sugestão de Resposta</h3>
-                          <button className="use-suggestion-btn" onClick={() => onUseSuggestion(item.id, item.immediate_answer, 'immediate_answer')}>
-                            Usar
-                          </button>
-                        </div>
-                        <p>{item.immediate_answer}</p>
-                      </div>
-                    )}
-
-                    {/* Card de Próximo Passo (para o cliente) */}
-                    {item.follow_up_options && item.follow_up_options.length > 0 && (
-                      <div className="response-card suggestion-card" style={{marginTop: '1rem'}}>
-                         <div className="card-header">
-                          <h3>➡️ Próximo Passo Sugerido</h3>
-                          <button className="use-suggestion-btn" onClick={() => onUseSuggestion(item.id, item.follow_up_options[0].text, 'follow_up_options')}>
-                            Usar
-                          </button>
-                        </div>
-                        {item.follow_up_options.map((option, index) => (
-                          <p key={index}>{option.text}</p>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Card de Vídeo (se houver) */}
-                    {item.video && <VideoSuggestionCard video={item.video} />}
-                  </div>
-                );
-              }
-            })}
-          </div>
-        )}
       </div>
     </div>
   );

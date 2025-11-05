@@ -23,7 +23,7 @@ if [ $? -ne 0 ]; then echo -e "${RED}❌ Falha no build${NC}"; exit 1; fi
 echo -e "${GREEN}✅ Imagem construída${NC}"
 
 # 2. Deploy no Cloud Run
-echo -e "\n${YELLOW}🚢 Fazendo deploy no Cloud Run...${NC}"
+echo -e "\n${YELLOW}🚢 Fazendo deploy no Cloud Run com Cloud SQL...${NC}"
 gcloud run deploy ${SERVICE_NAME} \
   --image ${IMAGE_NAME}:latest \
   --platform managed \
@@ -34,9 +34,18 @@ gcloud run deploy ${SERVICE_NAME} \
   --timeout 300s \
   --max-instances 3 \
   --min-instances 0 \
-  --port 8000
-  # REMOVIDOS: --add-cloudsql-instances, --update-secrets, --set-env-vars=CHROMA_DB_*
-  # Vamos deixar o servidor rodar "puro"
+  --port 8000 \
+  --add-cloudsql-instances ${SQL_INSTANCE_CONNECTION_NAME} \
+  --update-secrets=/run/secrets/${DB_SECRET_NAME}=${DB_SECRET_NAME}:${DB_SECRET_VERSION} \
+  --set-env-vars=CHROMA_DB_IMPL=duckdb+pg,\
+CHROMA_DB_PG_HN_HOST=${SQL_INSTANCE_CONNECTION_NAME},\
+CHROMA_DB_PG_HN_PORT=5432,\
+CHROMA_DB_PG_HN_DATABASE=postgres,\
+CHROMA_DB_PG_HN_USER=chroma_user,\
+CHROMA_DB_PG_HN_PASSWORD=/run/secrets/${DB_SECRET_NAME}
+
+if [ $? -ne 0 ]; then echo -e "${RED}❌ Falha no deploy${NC}"; exit 1; fi
+echo -e "${GREEN}✅ Deploy concluído com persistência PG!${NC}"
 
 if [ $? -ne 0 ]; then echo -e "${RED}❌ Falha no deploy${NC}"; exit 1; fi
 echo -e "${GREEN}✅ Deploy concluído!${NC}"

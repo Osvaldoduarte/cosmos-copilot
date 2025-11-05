@@ -1,23 +1,24 @@
+# backend/scripts/Dockerfile.pipeline (VERSÃO COMPLETA CORRIGIDA)
+
 FROM python:3.11-slim
 WORKDIR /app
 
-# Instala o Git
+# Instala o Git e o FFmpeg (Necessário para Whisper)
 RUN apt-get update && \
-    apt-get install -y git && \
+    apt-get install -y git ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
-# Copia o requirements.txt DE DENTRO DA PASTA scripts/ no contexto
+# Copia o requirements.txt
 COPY scripts/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# --- AJUSTES NOS CAMINHOS DE CÓPIA ---
-# Copia o script DE DENTRO DA PASTA scripts/ no contexto para a raiz /app
+# Corrige o conflito do NumPy 2.x com o Whisper/PyTorch
+RUN pip uninstall -y numpy && pip install numpy==1.26.4
+
+# Copia os scripts e módulos (caminhos relativos ao 'dir: backend')
 COPY scripts/gerenciar_pipeline.py .
-
-# Copia core/, data/, youtube_links.txt DA RAIZ DO CONTEXTO (backend/)
 COPY core/ /app/core/
-COPY scripts/data/ /app/data/
 COPY scripts/youtube_links.txt .
+# NOTA: data/ e videos/ não são copiados; eles vêm do GCS no YAML.
 
-# O CMD continua o mesmo, pois o script foi copiado para /app
 CMD ["python", "gerenciar_pipeline.py"]
