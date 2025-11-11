@@ -58,14 +58,12 @@ function CopilotPanel() {
       </div>
 
       {/* --- INPUT PRIVADO --- */}
-      {/* 💡 CORREÇÃO: Removido o Droppable */}
-      <div className="copilot-input">
-        <form onSubmit={handlePrivateQuerySubmit}>
+<div className="copilot-input">
+        {/* 💡 Classe adicionada ao formulário */}
+        <form onSubmit={handlePrivateQuerySubmit} className="private-query-form">
           <input
             type="text"
-            value={privateQuery}
-            onChange={(e) => setPrivateQuery(e.target.value)}
-            placeholder="Perguntar algo à IA..."
+            // ...
           />
           <button type="submit">Enviar</button>
         </form>

@@ -27,22 +27,6 @@ export function useChatCopilot(conversations, activeConversationId) {
 
   // 💡 CORREÇÃO: Lógica de Drop (arrastar)
   const handleMessageDrop = useCallback((messageId) => {
-    if (!activeConversationId || !conversations[activeConversationId]) {
-      console.error("[DragDrop] Drop ocorreu sem conversa ativa.");
-      return;
-    }
-
-    // Procura a mensagem no cache
-    const message = conversations[activeConversationId].messages.find(
-      (msg) => String(msg.id) === String(messageId)
-    );
-
-    if (message && message.content) {
-      console.log(`[DragDrop] Mensagem ${messageId} solta. Analisando: "${message.content}"`);
-      handleSuggestionRequest(message.content);
-    } else {
-      console.error(`[DragDrop] Mensagem com ID ${messageId} não encontrada no cache.`);
-    }
   }, [conversations, activeConversationId, handleSuggestionRequest]);
 
   const handleClearSuggestions = useCallback(() => {
@@ -59,7 +43,6 @@ export function useChatCopilot(conversations, activeConversationId) {
     handleSuggestionRequest,
     handleUseSuggestion,
     handleDeleteSuggestion,
-    handleMessageDrop, // <-- Agora está funcional
     handleClearSuggestions,
     handlePrivateSuggestionRequest,
   };

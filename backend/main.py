@@ -101,36 +101,48 @@ async def sincronizar_historico_inicial(service: ConversationService):
     """
     print_info("🔄 [Sync] Iniciando sincronização de histórico da Evolution API...")
 
+    # --- Etapa 1: Buscar mapa de nomes (JID -> Nome) ---
     headers = {"apikey": EVOLUTION_API_KEY, "Accept": "application/json"}
     mapa_de_nomes = {}
 
     try:
         print_info("ℹ️  [Sync] Etapa 1: Buscando mapa de nomes (findChats)...")
-        chats_url = f"{EVOLUTION_API_URL}/chat/findChats/{INSTANCE_NAME}"
+        chats_url = f"{EVOLUTION_API_URL}/chat/findChats/{INSTANCE_NAME}"  #
+        headers = {"apikey": EVOLUTION_API_KEY, "Accept": "application/json"}  #
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(chats_url, headers=headers, json=None)
+            print_info(f"ℹ️  [Sync DEBUG] Fazendo POST para: {chats_url}")
+            # 💡 CORREÇÃO: O endpoint findChats espera um POST, mesmo sem corpo.
+            response = await client.post(chats_url, headers=headers)
             response.raise_for_status()
-            chats = response.json()
-            for chat in chats:
-                jid = chat.get("remoteJid")
-                name = chat.get("pushName")
+            chats_response_data = response.json()
+
+            for chat in chats_response_data:
+                jid = chat.get("jid")
+                name = chat.get("name") or chat.get("notSpam")
                 if jid and name:
                     mapa_de_nomes[jid] = name
-            print_success(f"✅ [Sync] Etapa 1: Mapa de {len(mapa_de_nomes)} nomes criado.")
+
+        print_success(f"✅ [Sync] Etapa 1: Mapa de {len(mapa_de_nomes)} nomes criado.")
+    except httpx.HTTPStatusError as e:
+        print_error(f"❌ [Sync] Erro de Status da API Evolution (findChats): {e.response.status_code} - {e.response.text}")
+        return # Interrompe a sincronização se a primeira etapa falhar
     except Exception as e:
-        print_error(f"❌ [Sync] Falha ao buscar mapa de nomes (findChats): {e}. Nomes podem ficar incorretos.")
+        print_error(f"❌ [Sync] Erro inesperado na Etapa 1 (findChats): {repr(e)}")
+        traceback.print_exc()
+        return # Interrompe a sincronização
 
-    print_info("ℹ️  [Sync] Etapa 2: Buscando histórico de mensagens (findMessages)...")
-    messages_url = f"{EVOLUTION_API_URL}/chat/findMessages/{INSTANCE_NAME}"
-    PAGINAS_PARA_BUSCAR = 10
-    mensagens_encontradas_total = 0
-    mensagens_salvas_total = 0
-
+    # --- Etapa 2: Buscar histórico de mensagens ---
     try:
+        print_info("ℹ️  [Sync] Etapa 2: Buscando histórico de mensagens (findMessages)...")
+        messages_url = f"{EVOLUTION_API_URL}/chat/findMessages/{INSTANCE_NAME}"
+        PAGINAS_PARA_BUSCAR = 10  # 💡 Variável movida para o escopo correto
+        mensagens_encontradas_total = 0
+        mensagens_salvas_total = 0
         async with httpx.AsyncClient(timeout=60.0) as client:
             for page in range(1, PAGINAS_PARA_BUSCAR + 1):
                 payload = {"page": page, "pageSize": 50}
                 print_info(f"ℹ️  [Sync] Buscando página {page}/{PAGINAS_PARA_BUSCAR}...")
+                # 💡 CORREÇÃO: O endpoint findMessages também é POST e usa o payload
                 response = await client.post(messages_url, headers=headers, json=payload)
                 response.raise_for_status()
 
@@ -217,30 +229,30 @@ async def startup_event():
         print_warning("=====================================================")
     else:
         print_info(f"ℹ️  MODO '{MODE}' detectado. Inicializando o Cérebro (IA)...")
-        try:
-            # ETAPA 2.1: Conectar ao ChromaDB (Cérebro 1)
-            # Usando a função de `cerebro_ia.py`
-            client = cerebro_ia.initialize_chroma_client()
-            if not client:
-                raise ConnectionError("Não foi possível conectar ao ChromaDB.")
-
-            IA_MODELS["chroma_client"] = client
-
-            # ETAPA 2.2: Carregar todos os modelos
-            # Usando a função de `cerebro_ia.py`
-            llm, retriever, embeddings, playbook = cerebro_ia.load_models(client)
-
-            # Armazena os modelos carregados nas variáveis globais
-            IA_MODELS["llm"] = llm
-            IA_MODELS["retriever"] = retriever
-            IA_MODELS["embeddings"] = embeddings
-            IA_MODELS["playbook"] = playbook
-
-            print_success("✅ Cérebro (IA) inicializado e modelos carregados com sucesso.")
-
-        except Exception as e:
-            print_error(f"❌ FALHA CRÍTICA ao inicializar a IA: {e}")
-            traceback.print_exc()  # Imprime o stack trace completo
+        # try:
+        #     # ETAPA 2.1: Conectar ao ChromaDB (Cérebro 1)
+        #     # Usando a função de `cerebro_ia.py`
+        #     client = cerebro_ia.initialize_chroma_client()
+        #     if not client:
+        #         raise ConnectionError("Não foi possível conectar ao ChromaDB.")
+        #
+        #     IA_MODELS["chroma_client"] = client
+        #
+        #     # ETAPA 2.2: Carregar todos os modelos
+        #     # Usando a função de `cerebro_ia.py`
+        #     llm, retriever, embeddings, playbook = cerebro_ia.load_models(client)
+        #
+        #     # Armazena os modelos carregados nas variáveis globais
+        #     IA_MODELS["llm"] = llm
+        #     IA_MODELS["retriever"] = retriever
+        #     IA_MODELS["embeddings"] = embeddings
+        #     IA_MODELS["playbook"] = playbook
+        #
+        #     print_success("✅ Cérebro (IA) inicializado e modelos carregados com sucesso.")
+        #
+        # except Exception as e:
+        #     print_error(f"❌ FALHA CRÍTICA ao inicializar a IA: {e}")
+        #     traceback.print_exc()  # Imprime o stack trace completo
 
     print_info("✅ Servidor pronto. Aguardando webhooks...")
 
@@ -307,6 +319,8 @@ async def webhook_evolution(
 ):
     try:
         data = await request.json()
+        print_info(f"===== NOVO WEBHOOK RECEBIDO =====")
+        print_info(json.dumps(data, indent=2))
         if data.get("event") == "messages.upsert" and data.get("data", {}).get("messageType"):
             message_data = data.get("data", {})
             key = message_data.get("key", {})

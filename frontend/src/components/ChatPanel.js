@@ -5,7 +5,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { formatContactName, formatMessageTimestamp, DEFAULT_AVATAR_URL } from '../utils/formatDisplay';
 import MessageContextMenu from './MessageContextMenu';
 import { useChat } from '../context/ChatContext';
-import { Droppable, Draggable } from 'react-beautiful-dnd';
 
 // --- Ícones ---
 const SendIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>);
@@ -103,68 +102,44 @@ function ChatPanel({ onToggleCopilot, onBack }) {
         </button>
       </div>
 
-      {/* --- MENSAGENS (COM DROPPABLE) --- */}
-      <Droppable droppableId="chat-message-list">
-        {(provided) => (
-          <div
-            className="chat-messages"
-            ref={node => {
-              chatContainerRef.current = node;
-              provided.innerRef(node);
-            }}
-            {...provided.droppableProps}
-          >
-            {isLoadingMessages ? (
-              <div className="chat-placeholder">Carregando mensagens...</div>
-            ) : messages.length === 0 ? (
-              <div className="chat-placeholder">Nenhuma mensagem nesta conversa.</div>
-            ) : (
-              messages.map((msg, index) => {
-                const senderType = msg.sender === 'cliente' ? 'client' : 'seller';
-                // 💡 CORREÇÃO DND: Usa String(msg.id) como key e draggableId
-                // Isso é estável e corrige o bug do "sumiço"
-                const messageId = String(msg.id || `msg-temp-${index}`);
+      <div
+  className="chat-messages"
+  ref={chatContainerRef} // 💡 Ref simplificada
+>
+  {isLoadingMessages ? (
+    <div className="chat-placeholder">Carregando mensagens...</div>
+  ) : messages.length === 0 ? (
+    <div className="chat-placeholder">Nenhuma mensagem nesta conversa.</div>
+  ) : (
+    messages.map((msg, index) => {
+      const senderType = msg.sender === 'cliente' ? 'client' : 'seller';
+      const messageId = String(msg.id || `msg-temp-${index}`);
 
-                if (senderType === 'client') {
-                  return (
-                    <Draggable key={messageId} draggableId={messageId} index={index}>
-                      {(providedDraggable) => (
-                        <div
-                          ref={providedDraggable.innerRef}
-                          {...providedDraggable.draggableProps}
-                          {...providedDraggable.dragHandleProps}
-                          className={`message-bubble-row message-${senderType}`}
-                          onContextMenu={(e) => handleMessageContextMenu(e, msg)}
-                        >
-                          <div className={`message-bubble message-bubble-${senderType}`}>
-                            <p>{msg.content}</p>
-                            <div className="message-metadata">
-                              <span className="message-timestamp">{formatMessageTimestamp(msg.timestamp)}</span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </Draggable>
-                  );
-                }
-
-                return (
-                  <div key={messageId} className={`message-bubble-row message-${senderType}`}>
-                    <div className={`message-bubble message-bubble-${senderType}`}>
-                      <p>{msg.content}</p>
-                      <div className="message-metadata">
-                        <span className="message-timestamp">{formatMessageTimestamp(msg.timestamp)}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-            {provided.placeholder}
-            <div ref={chatEndRef} />
+      // 💡 Lógica unificada.
+      // O Draggable foi removido, agora é apenas um 'div' simples,
+      // assim como o do 'seller'.
+      return (
+        <div
+          key={messageId}
+          className={`message-bubble-row message-${senderType}`}
+          // O clique direito (ContextMenu) é mantido
+          {...(senderType === 'client' && {
+            onContextMenu: (e) => handleMessageContextMenu(e, msg),
+          })}
+        >
+          <div className={`message-bubble message-bubble-${senderType}`}>
+            <p>{msg.content}</p>
+            <div className="message-metadata">
+              <span className="message-timestamp">{formatMessageTimestamp(msg.timestamp)}</span>
+            </div>
           </div>
-        )}
-      </Droppable>
+        </div>
+      );
+    })
+  )}
+  {/* 💡 'provided.placeholder' removido */}
+  <div ref={chatEndRef} />
+</div>
 
       {showScrollButton && (
         <button className="scroll-to-bottom-btn" onClick={() => scrollToBottom('smooth')}>
