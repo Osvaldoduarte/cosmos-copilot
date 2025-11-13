@@ -1069,3 +1069,13 @@ body {
   background-color: var(--seller-bubble);
   border-top-right-radius: 4px;
 }
+
+.conversation-snippet {
+  white-space: nowrap; /* Impede que o texto quebre para a linha de baixo */
+  overflow: hidden; /* Esconde o texto que "vazar" da linha */
+  text-overflow: ellipsis; /* Adiciona os "..." no final do texto cortado */
+
+  /* Bônus: A cor do WhatsApp para texto secundário */
+  color: #667781; /* (Opcional, mas ajuda no visual) */
+  font-size: 0.9rem; /* (Opcional) */
+}

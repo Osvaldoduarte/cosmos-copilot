@@ -4,28 +4,21 @@
 import httpx
 import os
 import traceback
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+import uuid
+import time
+from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
+from pydantic import BaseModel
 
 from core.security import get_current_active_user, get_current_user
-from schemas import UserInDB
+from schemas import UserInDB, User
 
+from services.conversation_service import ConversationService, get_conversation_service
+from core.shared import print_error, print_warning, print_success, print_info
 
-# --- Definição completa da classe Colors ---
-class Colors:
-    RED = '\033[91m'
-    BLUE = '\033[94m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    END = '\033[0m'
+from core import security
 
+# --- FIM DAS NOVAS IMPORTAÇÕES ---
 
-def print_error(msg): print(f"{Colors.RED}❌ {msg}{Colors.END}")
-
-
-def print_warning(msg): print(f"{Colors.YELLOW}⚠️  {msg}{Colors.END}")
-
-
-# ---
 
 router = APIRouter(
     prefix="/evolution",
@@ -35,40 +28,40 @@ router = APIRouter(
 
 EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "https://evolution-api-129644477821.us-central1.run.app")
 EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY")
+INSTANCE_NAME = os.getenv("INSTANCE_NAME", "cosmos-test")
 
 if not EVOLUTION_API_KEY:
     raise RuntimeError("EVOLUTION_API_KEY não está configurada nas variáveis de ambiente.")
 
 
+# --- Schema (Body da Requisição de Envio) ---
+class SendMessageRequest(BaseModel):
+    recipient_jid: str
+    message_text: str
+
+
+# --- Fim do Schema ---
+
+
 # --- Endpoints de Proxy ---
 
 @router.post("/instance/create_and_get_qr")
-async def proxy_get_qr_code(  # Renomeei a função para refletir a nova lógica
+async def proxy_get_qr_code(
         request: Request,
         current_user: UserInDB = Depends(get_current_user)
 ):
-    """
-    Faz proxy para OBTER O QR CODE de uma instância existente.
-    O frontend chama "create_and_get_qr", mas o que ele realmente quer
-    é o QR Code da instância padrão se ela estiver desconectada.
-    """
+    """ Faz proxy para OBTER O QR CODE de uma instância existente. """
     try:
         try:
             frontend_body = await request.json()
         except Exception:
             frontend_body = {}
 
-            # Usa "cosmos-test" como padrão, que é a instância que já existe
-        instance_name = frontend_body.get("instanceName") or "cosmos-test"
-
-        # --- 💡 MUDANÇA DE LÓGICA PRINCIPAL 💡 ---
-        # Endpoint para OBTER QR CODE de instância existente
+        instance_name = frontend_body.get("instanceName") or INSTANCE_NAME
         api_url = f"{EVOLUTION_API_URL}/instance/connect/{instance_name}"
-
         headers = {"apikey": EVOLUTION_API_KEY}
 
         async with httpx.AsyncClient() as client:
-            # É UMA CHAMADA GET, NÃO POST, E NÃO ENVIA BODY
             response = await client.get(
                 api_url,
                 headers=headers,
@@ -82,18 +75,6 @@ async def proxy_get_qr_code(  # Renomeei a função para refletir a nova lógica
         raise HTTPException(
             status_code=e.response.status_code,
             detail=f"Erro na Evolution API: {e.response.text}"
-        )
-    except httpx.ConnectError as e:
-        print_error(f"Proxy (get_qr): Erro de Conexão: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Erro de Conexão: Não foi possível conectar à Evolution API."
-        )
-    except httpx.TimeoutException as e:
-        print_error(f"Proxy (get_qr): Timeout: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail=f"Timeout: A Evolution API demorou muito para responder."
         )
     except Exception as e:
         print_error(f"Proxy (get_qr): Erro interno inesperado: {repr(e)}")
@@ -109,11 +90,8 @@ async def proxy_instance_status(
         request: Request,
         current_user: UserInDB = Depends(get_current_user)
 ):
-    """
-    Faz proxy da verificação de status da instância para a Evolution API.
-    (Esta função já está funcionando corretamente)
-    """
-    instance_name = request.query_params.get('instanceName') or "cosmos-test"
+    """ Faz proxy da verificação de status da instância para a Evolution API. """
+    instance_name = request.query_params.get('instanceName') or INSTANCE_NAME
 
     if not instance_name:
         raise HTTPException(
@@ -138,6 +116,72 @@ async def proxy_instance_status(
         )
     except Exception as e:
         print_error(f"Proxy (status): Erro interno inesperado: {repr(e)}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro interno no proxy: {repr(e)}"
+        )
+
+
+# --- 💡 --- O ENDPOINT DE ENVIO QUE FALTAVA (E CORRIGIDO) --- 💡 ---
+@router.post(
+    "/message/send",
+    summary="Envia uma mensagem de texto e salva no histórico."
+)
+async def proxy_send_message(
+        request_data: SendMessageRequest,  # Recebe o JID e o texto
+        background_tasks: BackgroundTasks,  # Para salvar no DB
+        current_user: User = Depends(security.get_current_active_user),
+        # 💡 CORREÇÃO: Pega o serviço por Injeção de Dependência
+        service: ConversationService = Depends(get_conversation_service)
+):
+    """
+    1. Envia a mensagem para a Evolution API.
+    2. Salva a mensagem enviada (vendedor) no ChromaDB.
+    """
+    api_url = f"{EVOLUTION_API_URL}/message/sendText/{INSTANCE_NAME}"
+    headers = {"apikey": EVOLUTION_API_KEY, "Content-Type": "application/json"}
+
+    payload = {
+        "number": request_data.recipient_jid.split('@')[0],
+        "options": {"delay": 1200, "presence": "composing"},
+        "textMessage": {"text": request_data.message_text}
+    }
+
+    try:
+        # 1. Tenta enviar a mensagem pela Evolution API
+        async with httpx.AsyncClient() as client:
+            response = await client.post(api_url, headers=headers, json=payload, timeout=30.0)
+            response.raise_for_status()
+
+            response_data = response.json()
+            message_id_from_api = response_data.get("key", {}).get("id", f"seller_{uuid.uuid4()}")
+
+        # 2. Se o envio deu certo, salva a mensagem no nosso ChromaDB
+        message_obj = {
+            "message_id": message_id_from_api,
+            "contact_id": request_data.recipient_jid,
+            "content": request_data.message_text,
+            "sender": "vendedor",
+            "timestamp": int(time.time()),
+            "pushName": current_user.full_name or "Vendedor",
+            "instance_id": INSTANCE_NAME
+        }
+
+        # 💡 CORREÇÃO: Chama o método do serviço diretamente
+        background_tasks.add_task(service.save_message_from_webhook, message_obj)
+
+        print_success(f"✅ [Proxy Send] Mensagem enviada e salva no DB: {message_id_from_api}")
+        return response_data
+
+    except httpx.HTTPStatusError as e:
+        print_error(f"Proxy (send): Erro de Status da API ({e.response.status_code}): {e.response.text}")
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"Erro na Evolution API: {e.response.text}"
+        )
+    except Exception as e:
+        print_error(f"Proxy (send): Erro interno inesperado: {repr(e)}")
         traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

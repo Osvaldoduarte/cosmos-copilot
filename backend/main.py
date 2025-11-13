@@ -11,8 +11,8 @@ from typing import Dict, Any, List, Optional
 # --- IMPORTAÇÕES (Corretas) ---
 from core import security, cerebro_ia
 from schemas import User, UserInDB, Token, NewConversationRequest
-from services.conversation_service import ConversationService, get_conversation_service # Importa a Factory
-from repositories.chroma_repository import ChromaConversationsRepository, get_conversations_repository
+from services.conversation_service import ConversationService, get_conversation_service
+from repositories.chroma_repository import get_conversations_repository # Mantenha este
 
 # 💡 CORREÇÃO: Importa tudo do shared
 from core.shared import (
@@ -52,7 +52,10 @@ manager = ConnectionManager()
 
 # --- Variáveis de Ambiente ---
 load_dotenv()
-EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "https://evolution-api-129644477821.us-central1.run.app")
+EVOLUTION_API_URL = "http://34.29.184.203:8080"
+print("---------------------------------------------------")
+print(f"🔍 DEBUG: O Backend está tentando conectar em: {EVOLUTION_API_URL}")
+print("---------------------------------------------------")
 EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY")
 INSTANCE_NAME = os.getenv("INSTANCE_NAME", "cosmos-test")
 MODE = os.getenv("MODE", "chat")
@@ -109,7 +112,7 @@ async def sincronizar_historico_inicial(service: ConversationService):
         print_info("ℹ️  [Sync] Etapa 1: Buscando mapa de nomes (findChats)...")
         chats_url = f"{EVOLUTION_API_URL}/chat/findChats/{INSTANCE_NAME}"  #
         headers = {"apikey": EVOLUTION_API_KEY, "Accept": "application/json"}  #
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             print_info(f"ℹ️  [Sync DEBUG] Fazendo POST para: {chats_url}")
             # 💡 CORREÇÃO: O endpoint findChats espera um POST, mesmo sem corpo.
             response = await client.post(chats_url, headers=headers)
@@ -135,12 +138,12 @@ async def sincronizar_historico_inicial(service: ConversationService):
     try:
         print_info("ℹ️  [Sync] Etapa 2: Buscando histórico de mensagens (findMessages)...")
         messages_url = f"{EVOLUTION_API_URL}/chat/findMessages/{INSTANCE_NAME}"
-        PAGINAS_PARA_BUSCAR = 10  # 💡 Variável movida para o escopo correto
+        PAGINAS_PARA_BUSCAR = 200  # 💡 Variável movida para o escopo correto
         mensagens_encontradas_total = 0
         mensagens_salvas_total = 0
         async with httpx.AsyncClient(timeout=60.0) as client:
             for page in range(1, PAGINAS_PARA_BUSCAR + 1):
-                payload = {"page": page, "pageSize": 50}
+                payload = {"page": page, "pageSize": 250}
                 print_info(f"ℹ️  [Sync] Buscando página {page}/{PAGINAS_PARA_BUSCAR}...")
                 # 💡 CORREÇÃO: O endpoint findMessages também é POST e usa o payload
                 response = await client.post(messages_url, headers=headers, json=payload)
@@ -183,8 +186,6 @@ async def sincronizar_historico_inicial(service: ConversationService):
                     await service.save_message_from_webhook(message_obj)
                     mensagens_salvas_total += 1
 
-                await asyncio.sleep(0.5)
-
         print_success(
             f"✅ [Sync] Sincronização concluída. {mensagens_encontradas_total} mensagens lidas, {mensagens_salvas_total} mensagens 1-para-1 salvas no ChromaDB.")
 
@@ -210,9 +211,13 @@ async def startup_event():
 
     # 1. Inicializa o serviço de conversas (como antes)
     try:
-        # Usa a função factory para obter o serviço
-        service_instance = get_conversation_service(get_conversations_repository())
+        repo = get_conversations_repository()
+
+        service_instance = ConversationService(repository=repo)
         print_info("✅ Conexão inicial com o Repositório verificada.")
+
+        # print_warning("⚠️  [Startup] Limpando dados da coleção anterior (LGPD)...")
+        # await service_instance.delete_all_conversations()
 
         print_info("ℹ️  Agendando Sincronização de Histórico (Cold Start)...")
         asyncio.create_task(sincronizar_historico_inicial(service_instance))
@@ -311,25 +316,27 @@ def _create_service_instance() -> ConversationService:
     service = ConversationService(repository=repo)
     return service
 
-# --- Webhook (Corrigido para aceitar 'fromMe') ---
+
 @app.post("/webhook/evolution")
 async def webhook_evolution(
         request: Request,
-        background_tasks: BackgroundTasks
+        background_tasks: BackgroundTasks,
+        service: ConversationService = Depends(get_conversation_service)
 ):
     try:
         data = await request.json()
         print_info(f"===== NOVO WEBHOOK RECEBIDO =====")
         print_info(json.dumps(data, indent=2))
-        if data.get("event") == "messages.upsert" and data.get("data", {}).get("messageType"):
+
+        event = data.get("event")
+
+        if event == "messages.upsert" and data.get("data", {}).get("messageType"):
             message_data = data.get("data", {})
             key = message_data.get("key", {})
             sender_jid = key.get("remoteJid")
 
             if not sender_jid or not sender_jid.endswith("@s.whatsapp.net"):
                 return {"status": "ok", "message": "Ignorado (grupo ou sem JID)"}
-
-            # FILTRO 'fromMe' REMOVIDO
 
             msg_content_obj = message_data.get("message", {})
             message_content = _parse_message_content(msg_content_obj)
@@ -348,12 +355,22 @@ async def webhook_evolution(
                 "instance_id": data.get("instance", INSTANCE_NAME)
             }
 
-            service_instance = _create_service_instance()
-            background_tasks.add_task(process_and_save_message, message_obj, service_instance)
+            # 💡 CORREÇÃO: Chama o método do serviço diretamente
+            background_tasks.add_task(service.save_message_from_webhook, message_obj)
+
+        # 💡 CORREÇÃO (LGPD): Agora funciona pois 'event' está definido
+        elif event == "instance.logout" or (
+                event == "connection.update" and data.get("data", {}).get("state") == "close"):
+            print_warning("⚠️ [LGPD] Evento de LOGOUT/DESCONEXÃO detectado. Agendando limpeza do banco de dados...")
+            background_tasks.add_task(service.delete_all_conversations)
+
+        else:
+            print_info(f"ℹ️  [Webhook] Evento '{event}' recebido e ignorado (não é 'messages.upsert' nem 'logout').")
 
         return {"status": "ok", "received": True}
     except Exception as e:
         print_error(f"Erro ao processar webhook: {e}")
+        traceback.print_exc()  # Adiciona mais detalhes do erro
         return {"status": "error", "message": str(e)}
 
 
@@ -371,35 +388,37 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 # --- Endpoint de Nova Conversa (Correto) ---
 @app.post("/new-conversation")
 async def start_new_conversation(
-        request: NewConversationRequest,
+        request_data: NewConversationRequest,  # Nome da variável mudado
         background_tasks: BackgroundTasks,
-        current_user: User = Depends(security.get_current_active_user)
+        current_user: User = Depends(security.get_current_active_user),
+        # 💡 CORREÇÃO: Pega o serviço por Injeção de Dependência
+        service: ConversationService = Depends(get_conversation_service)
 ):
-    recipient_jid = f"{request.recipient_number}@s.whatsapp.net"
-    success = await send_whatsapp_message(
-        recipient_jid=recipient_jid,
-        message_text=request.initial_message
-    )
-    if not success:
-        raise HTTPException(status_code=500, detail="Falha ao enviar a mensagem inicial.")
+    """
+    Este endpoint agora apenas CRIA a mensagem no DB.
+    O envio real é feito pelo frontend chamando /evolution/message/send
+    """
+    recipient_jid = f"{request_data.recipient_number}@s.whatsapp.net"
+
+    # 💡 NOTA: A lógica de envio FOI MOVIDA para /evolution/message/send
+    # Este endpoint agora apenas salva a mensagem inicial do vendedor
 
     message_obj = {
-        "message_id": f"seller_init_{uuid.uuid4()}",
+        "message_id": f"seller_init_{uuid.uuid4()}",  # Cria um ID único
         "contact_id": recipient_jid,
-        "content": request.initial_message,
+        "content": request_data.initial_message,
         "sender": "vendedor",
         "timestamp": int(time.time()),
         "pushName": current_user.full_name or "Vendedor",
         "instance_id": INSTANCE_NAME
     }
-    service_instance = _create_service_instance()
 
+    # 💡 CORREÇÃO: Chama o método do serviço diretamente
     background_tasks.add_task(
-        process_and_save_message,
-        message_obj,
-        service_instance
+        service.save_message_from_webhook,
+        message_obj
     )
-    return {"status": "success", "message": "Conversa iniciada e salva."}
+    return {"status": "success", "message": "Conversa iniciada e salva localmente."}
 
 
 # --- Ponto de Entrada ---

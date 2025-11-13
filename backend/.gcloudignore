@@ -1,23 +1,19 @@
-# Arquivos de cache e temporários
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-
-# Pastas de ambientes virtuais
-.venv/
-venv/
-env/
-
-# Repositórios e caches de controle de versão
+# Ignorar o Git
 .git/
 .gitignore
 
-# Arquivos de log e temporários de pacotes
-pip-log.txt
-*.log
-*.tmp
+# Ignorar arquivos de IDE e Sistema
+.idea/
+.vscode/
+.DS_Store
 
-# Qualquer pasta grande que não seja necessária para o build
-videos/
-chroma_db_local/
+# Ignorar o node_modules do frontend
+node_modules/
+frontend/node_modules/
+
+# --- O IMPORTANTE ---
+# Ignorar caches e venv DENTRO do backend
+backend/venv/
+backend/.venv/
+backend/__pycache__/
+backend/*.pyc

@@ -2,20 +2,23 @@
 FROM python:3.11-slim
 WORKDIR /app
 
-# --- CORREÇÃO ---
-# Instala git E as ferramentas de build (build-essential, python3-dev)
-# necessárias para compilar dependências como bcrypt.
+# 1. Instala 'curl' + ferramentas de build
 RUN apt-get update && \
-    apt-get install -y git build-essential python3-dev && \
+    apt-get install -y git build-essential python3-dev curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Copia e instala as dependências.
+# 2. Copia e instala as dependências.
 COPY requirements-backend.txt .
 RUN pip install -r requirements-backend.txt
 
-# Copia o código-fonte restante
+# 💡 CORREÇÃO:
+# Em vez de 'curl', usamos o Python para pré-baixar o modelo.
+# Isso força a biblioteca de IA a fazer o download durante o build.
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
+# 4. Copia o código-fonte restante
 COPY . .
 
-# O Cloud Run espera que o app rode na porta 8080 por padrão
+# 5. Roda o servidor
 EXPOSE 8080
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
