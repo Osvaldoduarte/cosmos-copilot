@@ -3,9 +3,9 @@ import { useChat } from '../context/ChatContext';
 import { formatContactName, DEFAULT_AVATAR_URL } from '../utils/formatDisplay';
 
 // --- Ícones (Mantidos) ---
-const NewChatIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2"/></svg>);
-const LogoutIcon = () => (<svg width="20" height="20" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="currentColor" strokeWidth="2" fill="none"/><polyline points="16 17 21 12 16 7" stroke="currentColor" strokeWidth="2" fill="none"/><line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" strokeWidth="2"/></svg>);
-const SearchIcon = () => (<svg width="20" height="20" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" fill="none"/><path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2"/></svg>);
+const NewChatIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" /></svg>);
+const LogoutIcon = () => (<svg width="20" height="20" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="currentColor" strokeWidth="2" fill="none" /><polyline points="16 17 21 12 16 7" stroke="currentColor" strokeWidth="2" fill="none" /><line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" strokeWidth="2" /></svg>);
+const SearchIcon = () => (<svg width="20" height="20" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" fill="none" /><path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" /></svg>);
 
 function ConversationList({ onLogout }) {
   const {
@@ -56,8 +56,8 @@ function ConversationList({ onLogout }) {
               />
 
               <div className="conversation-details">
-                <div className="conversation-name">{formatContactName(convo.contact_name)}</div>
-                <div className="conversation-snippet">{convo.last_message || '...'}</div>
+                <div className="conversation-name">{formatContactName(convo.name)}</div>
+                <div className="conversation-snippet">{convo.lastMessage || '...'}</div>
               </div>
               {convo.unread && <div className="unread-dot"></div>}
             </div>

@@ -4,12 +4,12 @@ import { useChat } from '../context/ChatContext';
 import VideoSuggestionCard from './VideoSuggestionCard';
 
 // Ícones
-const CloseIcon = () => <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>;
+const CloseIcon = () => <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>;
 // const CopyIcon = () => ... (Removido pois vamos usar o de enviar)
-const SendPlaneIcon = () => <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>;
+const SendPlaneIcon = () => <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>;
 const MagicIcon = () => <span>✨</span>;
 // Ícone específico para o botão "Usar Sugestão" (Seta curva de resposta)
-const ReplyIcon = () => <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>;
+const ReplyIcon = () => <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" /></svg>;
 
 
 function CopilotPanel() {
@@ -48,7 +48,7 @@ function CopilotPanel() {
 
   const activeChat = useMemo(() => {
     if (!conversations || !activeConversationId) return null;
-    return conversations[activeConversationId];
+    return conversations.find(c => c.id === activeConversationId);
   }, [conversations, activeConversationId]);
 
   const handleInternalSubmit = (event) => {
@@ -71,8 +71,8 @@ function CopilotPanel() {
 
     // 3. Aguarda o tempo da animação (400ms do CSS) antes de limpar os dados
     setTimeout(() => {
-        clearSuggestions();
-        setIsExiting(false); // Reseta o estado local
+      clearSuggestions();
+      setIsExiting(false); // Reseta o estado local
     }, 400);
   };
 
@@ -84,7 +84,7 @@ function CopilotPanel() {
       {/* --- 1. HEADER (INPUT INTERNO) --- */}
       <div className="copilot-header">
         <div className="header-controls">
-           <form onSubmit={handleInternalSubmit} className="ai-input-form glass-input">
+          <form onSubmit={handleInternalSubmit} className="ai-input-form glass-input">
             <input
               type="text"
               placeholder="Pergunte ao Cérebro..."
@@ -110,8 +110,8 @@ function CopilotPanel() {
           <div className="copilot-loading">
             <div className="ai-orb"></div>
             <p style={{ minHeight: '1.5em', transition: 'all 0.3s' }}>
-      {loadingText}
-    </p>
+              {loadingText}
+            </p>
           </div>
         )}
 
@@ -131,7 +131,7 @@ function CopilotPanel() {
             </div>
 
             {lastAnalyzedMessage && queryType === 'analysis' && (
-               <p className="context-text">"{lastAnalyzedMessage}"</p>
+              <p className="context-text">"{lastAnalyzedMessage}"</p>
             )}
 
             {/* CARD LIQUID GLASS - Resposta Imediata */}
@@ -156,7 +156,7 @@ function CopilotPanel() {
 
             {/* Sugestão de Vídeo */}
             {suggestions.video && (
-                <VideoSuggestionCard video={suggestions.video} />
+              <VideoSuggestionCard video={suggestions.video} />
             )}
 
             {/* Próximos Passos */}
