@@ -1,30 +1,40 @@
-# Em backend/main.py
-
-import os, time, httpx, uuid, json, uvicorn, asyncio, traceback
+import os
+import time
+import httpx
+import uuid
+import json
+import uvicorn
+import asyncio
+import base64
+import traceback
+import io
 from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect, Depends, status
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Dict, Any, List, Optional
 
-# --- IMPORTAÇÕES (Corretas) ---
-from core import security, cerebro_ia
-from schemas import User, UserInDB, Token, NewConversationRequest
-from services.conversation_service import ConversationService, get_conversation_service
-from repositories.chroma_repository import get_conversations_repository # Mantenha este
+# --- IMPORTAÇÕES DO NÚCLEO ---
+from core import security
+import core.cerebro_ia as cerebro_ia
 
-# 💡 CORREÇÃO: Importa tudo do shared
+from schemas import User, UserInDB, Token, NewConversationRequest, CopilotAnalyzeRequest
+from services.conversation_service import ConversationService, get_conversation_service
+from repositories.chroma_repository import get_conversations_repository
+
+from routers import websocket as websocket_router # ✨ NOVO: Adicione o import do router
+from services.websocket_manager import manager
+
 from core.shared import (
     IA_MODELS, Colors,
     print_error, print_info, print_success, print_warning
 )
-# --- Importando os Routers ---
+
 from routers import evolution as evolution_router
 from routers import conversations as conversations_router
 
-# 💡 CORREÇÃO: Definições de Colors e print_... REMOVIDAS daqui.
-# Elas agora vivem exclusivamente em core/shared.py
 
 class ConnectionManager:
     def __init__(self):
@@ -41,29 +51,20 @@ class ConnectionManager:
         for client_id, connection in self.active_connections.items():
             try:
                 await connection.send_text(message)
-            except WebSocketDisconnect:
+            except Exception:
                 self.disconnect(client_id)
-            except Exception as e:
-                print_error(f"Erro ao transmitir para {client_id}: {e}")
-                self.disconnect(client_id)
+
 
 manager = ConnectionManager()
-# --- Fim das Classes Auxiliares ---
 
-# --- Variáveis de Ambiente ---
 load_dotenv()
-EVOLUTION_API_URL = "http://34.29.184.203:8080"
-print("---------------------------------------------------")
-print(f"🔍 DEBUG: O Backend está tentando conectar em: {EVOLUTION_API_URL}")
-print("---------------------------------------------------")
+EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "http://34.29.184.203:8080")
+if EVOLUTION_API_URL.endswith('/'): EVOLUTION_API_URL = EVOLUTION_API_URL[:-1]
 EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY")
 INSTANCE_NAME = os.getenv("INSTANCE_NAME", "cosmos-test")
-MODE = os.getenv("MODE", "chat")
+MODE = os.getenv("MODE", "copilot")
 
-# O dicionário IA_MODELS está em core/shared.py
-
-# --- Inicialização do App ---
-app = FastAPI(title="Backend Venai Refatorado")
+app = FastAPI(title="Backend Venai - Venda Inteligente")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -71,357 +72,411 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Inclui os routers (Mantenha o evolution_router para outras coisas, mas o proxy de mídia está aqui embaixo)
 app.include_router(evolution_router.router)
 app.include_router(conversations_router.router)
+app.include_router(websocket_router.router)
 
 
-# --- FUNÇÃO DE PARSING (Correta) ---
-def _parse_message_content(msg_content_obj: Dict[str, Any]) -> Optional[str]:
-    """ Extrai o conteúdo de texto de vários tipos de mensagem da Evolution API. """
-    if not msg_content_obj:
-        return None
-    if "conversation" in msg_content_obj:
-        return msg_content_obj["conversation"]
-    if "extendedTextMessage" in msg_content_obj:
-        return msg_content_obj.get("extendedTextMessage", {}).get("text")
-    if "templateMessage" in msg_content_obj:
-        hydrated_template = msg_content_obj.get("templateMessage", {}).get("hydratedFourRowTemplate", {})
-        if hydrated_template and "hydratedContentText" in hydrated_template:
-            return hydrated_template["hydratedContentText"]
-        return None
-    if "imageMessage" in msg_content_obj:
-        return msg_content_obj.get("imageMessage", {}).get("caption")
-    if "videoMessage" in msg_content_obj:
-        return msg_content_obj.get("videoMessage", {}).get("caption")
-    return None
-
-
-# --- FUNÇÃO DE SINCRONIZAÇÃO (Correta) ---
-async def sincronizar_historico_inicial(service: ConversationService):
-    """
-    Busca o histórico de mensagens da Evolution API (com paginação)
-    e popula o ChromaDB (Repositório) para o "cold start".
-    """
-    print_info("🔄 [Sync] Iniciando sincronização de histórico da Evolution API...")
-
-    # --- Etapa 1: Buscar mapa de nomes (JID -> Nome) ---
-    headers = {"apikey": EVOLUTION_API_KEY, "Accept": "application/json"}
-    mapa_de_nomes = {}
+# ==========================================
+#  LÓGICA CENTRAL DE PROXY DE MÍDIA (CORAÇÃO)
+# ==========================================
+@app.get("/evolution/media-proxy")
+async def public_media_proxy(url: str, messageId: str = None):
+    # 1. Tenta URL Original
+    try:
+        decoded_url = base64.b64decode(url).decode('utf-8')
+        target_url = decoded_url if decoded_url.startswith("http") else url
+    except:
+        target_url = url
 
     try:
-        print_info("ℹ️  [Sync] Etapa 1: Buscando mapa de nomes (findChats)...")
-        chats_url = f"{EVOLUTION_API_URL}/chat/findChats/{INSTANCE_NAME}"  #
-        headers = {"apikey": EVOLUTION_API_KEY, "Accept": "application/json"}  #
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            print_info(f"ℹ️  [Sync DEBUG] Fazendo POST para: {chats_url}")
-            # 💡 CORREÇÃO: O endpoint findChats espera um POST, mesmo sem corpo.
-            response = await client.post(chats_url, headers=headers)
-            response.raise_for_status()
-            chats_response_data = response.json()
+        async with httpx.AsyncClient(verify=False) as client:
+            try:
+                r = await client.get(target_url, timeout=5.0)
+                if r.status_code != 200: raise Exception("Fail")
+            except:
+                r = await client.get(target_url, headers={"apikey": EVOLUTION_API_KEY}, timeout=5.0)
 
-            for chat in chats_response_data:
-                jid = chat.get("jid")
-                name = chat.get("name") or chat.get("notSpam")
-                if jid and name:
-                    mapa_de_nomes[jid] = name
+            if r.status_code == 200:
+                content_type = r.headers.get("content-type", "")
 
-        print_success(f"✅ [Sync] Etapa 1: Mapa de {len(mapa_de_nomes)} nomes criado.")
-    except httpx.HTTPStatusError as e:
-        print_error(f"❌ [Sync] Erro de Status da API Evolution (findChats): {e.response.status_code} - {e.response.text}")
-        return # Interrompe a sincronização se a primeira etapa falhar
-    except Exception as e:
-        print_error(f"❌ [Sync] Erro inesperado na Etapa 1 (findChats): {repr(e)}")
-        traceback.print_exc()
-        return # Interrompe a sincronização
+                # 💡 O PULO DO GATO:
+                # Se a URL original devolver "octet-stream" (genérico), nós FORÇAMOS O ERRO
+                # para cair no "Plano B" (Resgate) que sabe o tipo certo do arquivo.
+                if "octet-stream" in content_type or not content_type:
+                    raise Exception("MIME Type inválido, tentando resgate...")
 
-    # --- Etapa 2: Buscar histórico de mensagens ---
-    try:
-        print_info("ℹ️  [Sync] Etapa 2: Buscando histórico de mensagens (findMessages)...")
-        messages_url = f"{EVOLUTION_API_URL}/chat/findMessages/{INSTANCE_NAME}"
-        PAGINAS_PARA_BUSCAR = 200  # 💡 Variável movida para o escopo correto
-        mensagens_encontradas_total = 0
-        mensagens_salvas_total = 0
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            for page in range(1, PAGINAS_PARA_BUSCAR + 1):
-                payload = {"page": page, "pageSize": 250}
-                print_info(f"ℹ️  [Sync] Buscando página {page}/{PAGINAS_PARA_BUSCAR}...")
-                # 💡 CORREÇÃO: O endpoint findMessages também é POST e usa o payload
-                response = await client.post(messages_url, headers=headers, json=payload)
-                response.raise_for_status()
-
-                data = response.json()
-                messages = data.get("messages", {}).get("records", [])
-
-                if not messages:
-                    print_warning(f"⚠️ [Sync] Nenhuma mensagem encontrada na página {page}. Interrompendo.")
-                    break
-
-                mensagens_encontradas_total += len(messages)
-
-                for msg_data in messages:
-                    key = msg_data.get("key", {})
-                    sender_jid = key.get("remoteJid")
-
-                    if not sender_jid or not sender_jid.endswith("@s.whatsapp.net"):
-                        continue
-
-                    msg_content_obj = msg_data.get("message", {})
-                    message_content = _parse_message_content(msg_content_obj)
-                    if not message_content:
-                        continue
-
-                    push_name_api = msg_data.get("pushName")
-                    nome_do_mapa = mapa_de_nomes.get(sender_jid)
-
-                    message_obj = {
-                        "message_id": key.get("id"),
-                        "contact_id": sender_jid,
-                        "content": message_content,
-                        "sender": "vendedor" if key.get("fromMe", False) else "cliente",
-                        "timestamp": int(msg_data.get("messageTimestamp", time.time())),
-                        "pushName": nome_do_mapa or push_name_api or sender_jid.split('@')[0],
-                        "instance_id": msg_data.get("instanceId", INSTANCE_NAME)
+                return StreamingResponse(
+                    r.aiter_bytes(),
+                    media_type=content_type,
+                    headers={
+                        "Cache-Control": "public, max-age=31536000",
+                        "Access-Control-Allow-Origin": "*",
+                        "Content-Disposition": "inline"
                     }
+                )
+    except:
+        pass  # Falhou ou era genérico, vai para o resgate
 
-                    await service.save_message_from_webhook(message_obj)
-                    mensagens_salvas_total += 1
+    # 2. Resgate via Evolution (PLANO B - SALVA VIDAS)
+    if messageId:
+        try:
+            rescue_url = f"{EVOLUTION_API_URL}/chat/getBase64FromMediaMessage/{INSTANCE_NAME}"
+            payload = {"message": {"key": {"id": messageId}}, "convertToMp4": False}
 
-        print_success(
-            f"✅ [Sync] Sincronização concluída. {mensagens_encontradas_total} mensagens lidas, {mensagens_salvas_total} mensagens 1-para-1 salvas no ChromaDB.")
+            async with httpx.AsyncClient() as client:
+                res = await client.post(
+                    rescue_url,
+                    headers={"apikey": EVOLUTION_API_KEY, "Content-Type": "application/json"},
+                    json=payload,
+                    timeout=30.0
+                )
 
-    except httpx.HTTPStatusError as e:
-        print_error(
-            f"❌ [Sync] Erro de Status da API Evolution (findMessages): {e.response.status_code} - {e.response.text}")
-    except Exception as e:
-        print_error(f"❌ [Sync] Erro inesperado durante a sincronização: {repr(e)}")
-        traceback.print_exc()
+                # Aceita 200 ou 201 (Created)
+                if res.status_code in [200, 201]:
+                    data = res.json()
+                    base64_str = data.get("base64")
+
+                    # A Evolution manda o mimetype correto aqui!
+                    mimetype = data.get("mimetype")
+
+                    # Se ainda assim falhar, adivinhamos na força bruta
+                    if not mimetype or "application" in mimetype:
+                        media_type_hint = data.get("mediaType") or ""
+                        if "audio" in media_type_hint:
+                            mimetype = "audio/mpeg"
+                        elif "image" in media_type_hint:
+                            mimetype = "image/jpeg"
+                        elif "video" in media_type_hint:
+                            mimetype = "video/mp4"
+                        else:
+                            mimetype = "image/jpeg"
+
+                    if base64_str:
+                        import io
+                        file_bytes = base64.b64decode(base64_str)
+                        print(f"✅ [Proxy] Resgate Sucesso! MIME: {mimetype}")
+
+                        return StreamingResponse(
+                            io.BytesIO(file_bytes),
+                            media_type=mimetype,
+                            headers={
+                                "Cache-Control": "public, max-age=31536000",
+                                "Access-Control-Allow-Origin": "*",
+                                "Content-Type": mimetype,
+                                "Content-Disposition": "inline"
+                            }
+                        )
+        except Exception as e:
+            print(f"❌ [Proxy] Erro Resgate: {e}")
+
+    # Retorna pixel transparente (para não ficar aquele ícone quebrado feio)
+    empty_pixel = base64.b64decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
+    return StreamingResponse(io.BytesIO(empty_pixel), media_type="image/gif")
+
+# --- ROTAS PÚBLICAS (SEM AUTH) ---
+# Mapeia tanto a rota nova quanto a antiga (cache) para o mesmo handler
+@app.get("/public/media")
+async def route_public_media(url: str, messageId: str = None):
+    return await public_media_proxy(url, messageId)
 
 
-# --- FIM DAS ATUALIZAÇÕES DE SYNC ---
+@app.get("/evolution/media-proxy")
+async def route_legacy_media(url: str, messageId: str = None):
+    return await public_media_proxy(url, messageId)
+
+
+# ==========================================
+#  OUTRAS FUNÇÕES E ROTAS DO SISTEMA
+# ==========================================
+
+def _extract_message_data(msg_obj: Dict[str, Any]) -> Dict[str, Any]:
+    result = {"content": "", "media_type": "text", "media_url": None}
+    if not msg_obj: return result
+
+    if "conversation" in msg_obj:
+        result["content"] = msg_obj["conversation"]
+    elif "extendedTextMessage" in msg_obj:
+        result["content"] = msg_obj["extendedTextMessage"].get("text", "")
+
+    media_types = {
+        "imageMessage": "image", "videoMessage": "video",
+        "audioMessage": "audio", "documentMessage": "document", "stickerMessage": "image"
+    }
+    for key, type_name in media_types.items():
+        if key in msg_obj:
+            media = msg_obj[key]
+            result["media_type"] = type_name
+            result["content"] = media.get("caption") or media.get("fileName") or ""
+            if key == "audioMessage" and media.get("ptt"): result["content"] = "[Mensagem de Voz]"
+
+            b64 = media.get("base64")
+            url = media.get("url")
+
+            if b64:
+                mime = media.get("mimetype", "image/jpeg")
+                result["media_url"] = f"data:{mime};base64,{b64}"
+            elif url:
+                result["media_url"] = url
+            break
+    return result
+
+
+async def executar_sincronizacao(service: ConversationService, paginas: int = 200):
+    LIMITE_CHATS = 150
+    LIMITE_MSGS_POR_CHAT = 200
+    print_info(f"🔄 [Sync] Iniciando Sincronização Profunda...")
+    headers = {"apikey": EVOLUTION_API_KEY, "Content-Type": "application/json"}
+
+    # 1. Mapeia Nomes e Fotos
+    mapa_nomes = {}
+    mapa_fotos = {}
+    try:
+        url_chats = f"{EVOLUTION_API_URL}/chat/findChats/{INSTANCE_NAME}"
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url_chats, headers=headers)
+            if r.status_code != 200: r = await client.post(url_chats, headers=headers)
+            if r.status_code == 200:
+                lista = r.json()
+                if isinstance(lista, dict): lista = lista.get('chats', [])
+                for c in lista:
+                    if c.get("id"):
+                        mapa_nomes[c.get("id")] = c.get("name") or c.get("pushName")
+                        mapa_fotos[c.get("id")] = c.get("profilePictureUrl") or c.get("image")
+    except:
+        pass
+
+    cache_fotos = {}
+    url_msgs = f"{EVOLUTION_API_URL}/chat/findMessages/{INSTANCE_NAME}"
+    chats_processados = {}
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        for page in range(1, paginas + 1):
+            if len(chats_processados) >= LIMITE_CHATS:
+                if all(c >= LIMITE_MSGS_POR_CHAT for c in chats_processados.values()): break
+            try:
+                print_info(f"📄 [Sync] Página {page}...")
+                resp = await client.post(url_msgs, headers=headers, json={"page": page, "pageSize": 200})
+                msgs = resp.json().get("messages", {}).get("records", [])
+                if not msgs: break
+
+                for m in msgs:
+                    key = m.get("key", {})
+                    remote_jid = key.get("remoteJid")
+                    if not remote_jid or "@g.us" in remote_jid: continue
+                    if not remote_jid.endswith("@s.whatsapp.net"): continue
+
+                    if remote_jid not in chats_processados:
+                        if len(chats_processados) >= LIMITE_CHATS: continue
+                        chats_processados[remote_jid] = 0
+                    if chats_processados[remote_jid] >= LIMITE_MSGS_POR_CHAT: continue
+
+                    # Busca foto se não tiver
+                    if remote_jid not in cache_fotos:
+                        if remote_jid in mapa_fotos and mapa_fotos[remote_jid]:
+                            cache_fotos[remote_jid] = mapa_fotos[remote_jid]
+                        else:
+                            try:
+                                num = remote_jid.split('@')[0]
+                                url_foto = f"{EVOLUTION_API_URL}/chat/fetchProfilePictureUrl/{INSTANCE_NAME}"
+                                res_foto = await client.post(url_foto, headers=headers, json={"number": num})
+                                if res_foto.status_code == 200:
+                                    data_foto = res_foto.json()
+                                    cache_fotos[remote_jid] = data_foto.get("profilePictureUrl") or data_foto.get(
+                                        "picture")
+                                else:
+                                    cache_fotos[remote_jid] = None
+                            except:
+                                cache_fotos[remote_jid] = None
+
+                    extracted = _extract_message_data(m.get("message", {}))
+                    if not extracted["content"] and not extracted["media_url"]: continue
+
+                    ts = int(m.get("messageTimestamp", time.time()))
+                    is_me = key.get("fromMe", False)
+                    nome = mapa_nomes.get(remote_jid) or m.get("pushName") or remote_jid.split('@')[0]
+
+                    msg_obj = {
+                        "message_id": key.get("id"),
+                        "contact_id": remote_jid,
+                        "content": extracted["content"],
+                        "media_type": extracted["media_type"],
+                        "media_url": extracted["media_url"],
+                        "sender": "vendedor" if is_me else "cliente",
+                        "timestamp": ts,
+                        "pushName": nome,
+                        "instance_id": INSTANCE_NAME,
+                        "profilePicUrl": cache_fotos.get(remote_jid)
+                    }
+                    await service.save_message_from_webhook(msg_obj)
+                    chats_processados[remote_jid] += 1
+            except:
+                pass
+    print_success(f"✅ [Sync] Concluído!")
+
+
+sincronizar_historico_inicial = executar_sincronizacao
 
 
 @app.on_event("startup")
 async def startup_event():
-    """
-    Inicializa o servidor, o repositório de conversas e,
-    crucialmente, carrega os modelos de IA (o "cérebro").
-    """
-    print_info("INFO: Iniciando servidor e serviços...")
-    global IA_MODELS  # Permite modificar o dicionário global de core.shared
-
-    # 1. Inicializa o serviço de conversas (como antes)
+    print_info("🚀 Iniciando Backend...")
+    global IA_MODELS
     try:
         repo = get_conversations_repository()
+        service = ConversationService(repository=repo)
+        asyncio.create_task(sincronizar_historico_inicial(service, paginas=50))
+    except:
+        pass
 
-        service_instance = ConversationService(repository=repo)
-        print_info("✅ Conexão inicial com o Repositório verificada.")
-
-        # print_warning("⚠️  [Startup] Limpando dados da coleção anterior (LGPD)...")
-        # await service_instance.delete_all_conversations()
-
-        print_info("ℹ️  Agendando Sincronização de Histórico (Cold Start)...")
-        asyncio.create_task(sincronizar_historico_inicial(service_instance))
-
-    except Exception as e:
-        print_error(f"❌ Falha ao inicializar o Chroma Repository no startup: {e}")
-        traceback.print_exc()
-
-    # 2. Verifica o MODO e inicializa a IA
-    if MODE == "chat":
-        print_warning("=====================================================")
-        print_warning("⚠️ MODO CHAT ATIVADO: Inicialização da IA desabilitada.")
-        print_warning("   Para ativar, defina a variável de ambiente MODE=copilot (ou similar).")
-        print_warning("=====================================================")
-    else:
-        print_info(f"ℹ️  MODO '{MODE}' detectado. Inicializando o Cérebro (IA)...")
-        # try:
-        #     # ETAPA 2.1: Conectar ao ChromaDB (Cérebro 1)
-        #     # Usando a função de `cerebro_ia.py`
-        #     client = cerebro_ia.initialize_chroma_client()
-        #     if not client:
-        #         raise ConnectionError("Não foi possível conectar ao ChromaDB.")
-        #
-        #     IA_MODELS["chroma_client"] = client
-        #
-        #     # ETAPA 2.2: Carregar todos os modelos
-        #     # Usando a função de `cerebro_ia.py`
-        #     llm, retriever, embeddings, playbook = cerebro_ia.load_models(client)
-        #
-        #     # Armazena os modelos carregados nas variáveis globais
-        #     IA_MODELS["llm"] = llm
-        #     IA_MODELS["retriever"] = retriever
-        #     IA_MODELS["embeddings"] = embeddings
-        #     IA_MODELS["playbook"] = playbook
-        #
-        #     print_success("✅ Cérebro (IA) inicializado e modelos carregados com sucesso.")
-        #
-        # except Exception as e:
-        #     print_error(f"❌ FALHA CRÍTICA ao inicializar a IA: {e}")
-        #     traceback.print_exc()  # Imprime o stack trace completo
-
-    print_info("✅ Servidor pronto. Aguardando webhooks...")
+    if MODE != "chat":
+        print_info(f"ℹ️  Inicializando IA...")
+        try:
+            client = cerebro_ia.initialize_chroma_client()
+            if client:
+                models = cerebro_ia.load_models(client)
+                IA_MODELS.update(zip(["llm", "retriever", "embeddings", "playbook"], models))
+                IA_MODELS["chroma_client"] = client
+                print_success("✅ Cérebro IA Carregado!")
+        except:
+            traceback.print_exc()
 
 
-# --- Endpoints de Autenticação ---
-@app.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = security.authenticate_user(form_data.username, form_data.password)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário ou senha incorretos",
-                            headers={"WWW-Authenticate": "Bearer"})
-    access_token = security.create_access_token(data={"sub": user.username})
-    return {"access_token": access_token, "token_type": "bearer"}
-
-
-@app.get("/users/me/", response_model=User)
-async def read_users_me(current_user: UserInDB = Depends(security.get_current_active_user)):
-    return current_user
-
-
-# --- Lógica de Processamento ---
-async def process_and_save_message(
-        message_obj: Dict[str, Any],
-        service: ConversationService
-):
+@app.post("/copilot/analyze")
+async def analyze_conversation(req: CopilotAnalyzeRequest, user: User = Depends(security.get_current_active_user),
+                               service: ConversationService = Depends(get_conversation_service)):
+    if not IA_MODELS.get("llm"): raise HTTPException(status_code=503, detail="IA offline.")
+    sales_copilot = cerebro_ia.get_sales_copilot()
+    messages = await service.get_messages_for_conversation(req.contact_id)
+    history_simple = []
+    for m in messages:
+        content = m.get("content", "")
+        if m.get("media_type") == "audio":
+            content = "[ÁUDIO]"
+        elif m.get("media_type") == "image":
+            content = f"[IMAGEM]: {content}"
+        history_simple.append({"sender": m.get("sender"), "content": content})
     try:
-        await service.save_message_from_webhook(message_obj)
+        return sales_copilot.generate_sales_suggestions(query=req.query, full_conversation_history=history_simple,
+                                                        current_stage_id="general", is_private_query=req.is_private,
+                                                        client_data={})
     except Exception as e:
-        print_error(f"❌ [ProcessMsg] Falha ao salvar mensagem via serviço: {e}")
-
-
-async def send_whatsapp_message(recipient_jid: str, message_text: str) -> bool:
-    api_url = f"{EVOLUTION_API_URL}/message/sendText/{INSTANCE_NAME}"
-    headers = {"apikey": EVOLUTION_API_KEY, "Content-Type": "application/json"}
-    payload = {
-        "number": recipient_jid.split('@')[0],
-        "options": {"delay": 1200, "presence": "composing"},
-        "textMessage": {"text": message_text}
-    }
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(api_url, headers=headers, json=payload, timeout=30.0)
-            if response.status_code in [200, 201]:
-                print_success(f"Mensagem enviada para {recipient_jid}: {message_text}")
-                return True
-            else:
-                print_error(f"Falha ao enviar mensagem para {recipient_jid} ({response.status_code}): {response.text}")
-                return False
-    except Exception as e:
-        print_error(f"Exceção ao enviar mensagem para {recipient_jid}: {e}")
-        return False
-
-def _create_service_instance() -> ConversationService:
-    # 💡 CORREÇÃO: Usa a factory para criar a instância
-    repo = get_conversations_repository()
-    service = ConversationService(repository=repo)
-    return service
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/webhook/evolution")
-async def webhook_evolution(
-        request: Request,
-        background_tasks: BackgroundTasks,
-        service: ConversationService = Depends(get_conversation_service)
-):
+async def webhook(request: Request, background_tasks: BackgroundTasks,
+                  service: ConversationService = Depends(get_conversation_service)):
     try:
         data = await request.json()
-        print_info(f"===== NOVO WEBHOOK RECEBIDO =====")
-        print_info(json.dumps(data, indent=2))
+        if data.get("event") == "messages.upsert":
+            msg_data = data.get("data", {})
+            jid = msg_data.get("key", {}).get("remoteJid")
+            if jid and "@g.us" not in jid:
+                extracted = _extract_message_data(msg_data.get("message", {}))
+                obj = {
+                    "message_id": msg_data.get("key", {}).get("id"),
+                    "contact_id": jid,
+                    "content": extracted["content"],
+                    "media_type": extracted["media_type"],
+                    "media_url": extracted["media_url"],
+                    "sender": "vendedor" if msg_data.get("key", {}).get("fromMe") else "cliente",
+                    "timestamp": int(msg_data.get("messageTimestamp", time.time())),
+                    "pushName": msg_data.get("pushName", jid.split('@')[0]),
+                    "instance_id": data.get("instance", INSTANCE_NAME),
+                    "profilePicUrl": msg_data.get("senderPhoto")
+                }
+                # 1. Encontrar o usuário que possui esta instância
+                # (ATENÇÃO: Este é um ponto chave de lógica de negócio que deve ser implementado no seu sistema)
+                # Por hora, vamos assumir que o 'vendedor1' é o único que usa o app.
 
-        event = data.get("event")
+                # ✨ Lógica Simples (Troque por sua busca real no DB)
+                # Você precisa de uma forma de mapear INSTANCE_NAME para um USERNAME (user_id)
+                # Exemplo: user_id = await get_user_from_instance_db(obj["instance_id"])
+                user_id_to_notify = "vendedor1"  # <--- SUBSTITUA PELA LÓGICA DE BUSCA REAL!
 
-        if event == "messages.upsert" and data.get("data", {}).get("messageType"):
-            message_data = data.get("data", {})
-            key = message_data.get("key", {})
-            sender_jid = key.get("remoteJid")
+                # 2. Transforma o objeto em um formato ideal para o frontend
+                # O frontend precisa de tudo para atualizar a lista de conversas
+                # O objeto 'obj' é o formato final.
 
-            if not sender_jid or not sender_jid.endswith("@s.whatsapp.net"):
-                return {"status": "ok", "message": "Ignorado (grupo ou sem JID)"}
+                # 3. Envia para o WebSocket
+                background_tasks.add_task(manager.broadcast, user_id_to_notify, obj)
 
-            msg_content_obj = message_data.get("message", {})
-            message_content = _parse_message_content(msg_content_obj)
-
-            if not message_content:
-                print_info(f"ℹ️  [Webhook] Ignorando mensagem sem texto (Tipo: {message_data.get('messageType')}).")
-                return {"status": "ok", "message": "Ignorado (sem texto)"}
-
-            message_obj = {
-                "message_id": key.get("id"),
-                "contact_id": sender_jid,
-                "content": message_content,
-                "sender": "vendedor" if key.get("fromMe", False) else "cliente",
-                "timestamp": int(message_data.get("messageTimestamp", time.time())),
-                "pushName": message_data.get("pushName", sender_jid.split('@')[0]),
-                "instance_id": data.get("instance", INSTANCE_NAME)
-            }
-
-            # 💡 CORREÇÃO: Chama o método do serviço diretamente
-            background_tasks.add_task(service.save_message_from_webhook, message_obj)
-
-        # 💡 CORREÇÃO (LGPD): Agora funciona pois 'event' está definido
-        elif event == "instance.logout" or (
-                event == "connection.update" and data.get("data", {}).get("state") == "close"):
-            print_warning("⚠️ [LGPD] Evento de LOGOUT/DESCONEXÃO detectado. Agendando limpeza do banco de dados...")
-            background_tasks.add_task(service.delete_all_conversations)
-
-        else:
-            print_info(f"ℹ️  [Webhook] Evento '{event}' recebido e ignorado (não é 'messages.upsert' nem 'logout').")
-
-        return {"status": "ok", "received": True}
-    except Exception as e:
-        print_error(f"Erro ao processar webhook: {e}")
-        traceback.print_exc()  # Adiciona mais detalhes do erro
-        return {"status": "error", "message": str(e)}
+                background_tasks.add_task(service.save_message_from_webhook, obj)
+        return {"status": "received"}
+    except:
+        return {"status": "error"}
 
 
-@app.websocket("/ws/{client_id}")
-async def websocket_endpoint(websocket: WebSocket, client_id: str):
-    await manager.connect(websocket, client_id)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect(client_id)
-        print_info(f"Cliente {client_id} desconectado.")
-
-
-# --- Endpoint de Nova Conversa (Correto) ---
 @app.post("/new-conversation")
-async def start_new_conversation(
-        request_data: NewConversationRequest,  # Nome da variável mudado
-        background_tasks: BackgroundTasks,
-        current_user: User = Depends(security.get_current_active_user),
-        # 💡 CORREÇÃO: Pega o serviço por Injeção de Dependência
-        service: ConversationService = Depends(get_conversation_service)
-):
+async def start_new_conversation(req: NewConversationRequest, background_tasks: BackgroundTasks,
+                                 user: User = Depends(security.get_current_active_user),
+                                 service: ConversationService = Depends(get_conversation_service)):
+    jid = f"{req.recipient_number}@s.whatsapp.net"
+    raw = req.recipient_number
+    if raw.startswith("55") and len(raw) == 13:
+        short = raw[:4] + raw[5:]
+        short_jid = f"{short}@s.whatsapp.net"
+        if await service.get_messages_for_conversation(short_jid): jid = short_jid; raw = short
+
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(f"{EVOLUTION_API_URL}/message/sendText/{INSTANCE_NAME}",
+                              headers={"apikey": EVOLUTION_API_KEY}, json={"number": raw, "text": req.initial_message})
+    except:
+        pass
+
+    msg = {"message_id": f"init_{uuid.uuid4()}", "contact_id": jid, "content": req.initial_message,
+           "sender": "vendedor", "timestamp": int(time.time()), "pushName": user.full_name,
+           "instance_id": INSTANCE_NAME, "media_type": "text", "media_url": None}
+    background_tasks.add_task(service.save_message_from_webhook, msg)
+    return {"status": "success", "contact_id": jid}
+
+
+@app.post("/system/sync-history")
+async def manual_sync(pages: int = 5, service: ConversationService = Depends(get_conversation_service)):
+    asyncio.create_task(executar_sincronizacao(service, paginas=pages))
+    return {"status": "processing"}
+
+
+@app.post("/token", response_model=Token)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = security.authenticate_user(form_data.username, form_data.password)
+    if not user: raise HTTPException(status_code=401, detail="Credenciais inválidas")
+    return {"access_token": security.create_access_token(data={"sub": user.username}), "token_type": "bearer"}
+
+
+@app.websocket("/ws/{token}")
+async def websocket_endpoint(websocket: WebSocket, token: str):
     """
-    Este endpoint agora apenas CRIA a mensagem no DB.
-    O envio real é feito pelo frontend chamando /evolution/message/send
+    Endpoint WebSocket que autentica usando um token na URL.
     """
-    recipient_jid = f"{request_data.recipient_number}@s.whatsapp.net"
+    try:
+        # ✨ PASSO IMPORTANTE:
+        # Você precisa de uma função que decodifique o JWT
+        # e retorne o ID do usuário.
+        user_id = get_user_id_from_token(token)
 
-    # 💡 NOTA: A lógica de envio FOI MOVIDA para /evolution/message/send
-    # Este endpoint agora apenas salva a mensagem inicial do vendedor
+        if user_id is None:
+            await websocket.close(code=1008)  # Código de política violada
+            return
 
-    message_obj = {
-        "message_id": f"seller_init_{uuid.uuid4()}",  # Cria um ID único
-        "contact_id": recipient_jid,
-        "content": request_data.initial_message,
-        "sender": "vendedor",
-        "timestamp": int(time.time()),
-        "pushName": current_user.full_name or "Vendedor",
-        "instance_id": INSTANCE_NAME
-    }
+        # Conecta o usuário ao gerenciador
+        await manager.connect(user_id, websocket)
 
-    # 💡 CORREÇÃO: Chama o método do serviço diretamente
-    background_tasks.add_task(
-        service.save_message_from_webhook,
-        message_obj
-    )
-    return {"status": "success", "message": "Conversa iniciada e salva localmente."}
+        # Mantém a conexão viva
+        while True:
+            # Apenas espera por mensagens (ou desconexão)
+            await websocket.receive_text()
 
+    except WebSocketDisconnect:
+        manager.disconnect(user_id, websocket)
+    except Exception as e:
+        print(f"Erro no WebSocket: {e}")
+        if 'user_id' in locals():
+            manager.disconnect(user_id, websocket)
 
-# --- Ponto de Entrada ---
 if __name__ == "__main__":
-    print_info("🚀 Iniciando servidor backend (Refatorado)...")
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8080)), reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

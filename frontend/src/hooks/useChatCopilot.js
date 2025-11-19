@@ -1,49 +1,90 @@
 // Em frontend/src/hooks/useChatCopilot.js
-// (ARQUIVO NOVO)
+import { useCallback } from 'react'; // Removemos useState
+import api from '../services/api';
 
-import { useState, useCallback } from 'react';
+// Agora recebe 'updateCopilotState' como parâmetro
+export function useChatCopilot(conversations, activeConversationId, setIsCopilotOpen, updateCopilotState) {
 
-/**
- * Hook (Refatorado)
- * Responsabilidade Única: Gerenciar o Copilot (Sugestões, IA).
- * 💡 CORRIGE O BUG de Drag-and-Drop.
- */
-export function useChatCopilot(conversations, activeConversationId) {
-  const [suggestionsByConvo, setSuggestionsByConvo] = useState({});
-  const [stagesByConvo, setStagesByConvo] = useState({});
+  // --- LEITURA DO ESTADO (Vem da conversa ativa) ---
+  const activeChat = activeConversationId ? conversations[activeConversationId] : null;
+  const copilotState = activeChat?.copilot || {};
 
-  // Handlers
-  const handleSuggestionRequest = useCallback((query) => {
-    console.log("[Copilot] Solicitação de sugestão para:", query);
-  }, []);
+  // Se não tiver nada salvo, usamos valores padrão
+  const suggestions = copilotState.suggestions || null;
+  const lastAnalyzedMessage = copilotState.lastAnalyzedMessage || null;
+  const queryType = copilotState.queryType || 'analysis';
+  const isCopilotLoading = copilotState.isLoading || false;
 
-  const handleUseSuggestion = useCallback((sugId, text) => {
-    console.log("[Copilot] Usando sugestão:", text);
-  }, []);
+  // --- AÇÕES (Gravam na conversa ativa) ---
 
-  const handleDeleteSuggestion = useCallback((sugId) => {
-    console.log("[Copilot] Deletando sugestão:", sugId);
-  }, []);
+  const clearSuggestions = useCallback(() => {
+    if (!activeConversationId) return;
+    updateCopilotState(activeConversationId, {
+        suggestions: null,
+        lastAnalyzedMessage: null,
+        queryType: 'analysis',
+        isLoading: false
+    });
+  }, [activeConversationId, updateCopilotState]);
 
-  // 💡 CORREÇÃO: Lógica de Drop (arrastar)
-  const handleMessageDrop = useCallback((messageId) => {
-  }, [conversations, activeConversationId, handleSuggestionRequest]);
+  const _sendToAi = async (text, isPrivate) => {
+    if (!activeConversationId) return;
 
-  const handleClearSuggestions = useCallback(() => {
-    console.log("[Copilot] Limpando sugestões para:", activeConversationId);
-  }, [activeConversationId]);
+    if (setIsCopilotOpen) {
+        setIsCopilotOpen(true);
+    }
 
-  const handlePrivateSuggestionRequest = useCallback((query) => {
-    console.log("[Copilot] Solicitação privada:", query);
-  }, []);
+    // 1. Define Loading no estado da conversa
+    updateCopilotState(activeConversationId, {
+        isLoading: true,
+        suggestions: null, // Limpa anterior enquanto carrega
+        lastAnalyzedMessage: isPrivate ? null : text // Salva msg se for análise
+    });
+
+    try {
+      const response = await api.post('/copilot/analyze', {
+        contact_id: activeConversationId,
+        query: text,
+        is_private: isPrivate
+      });
+
+      if (response.data && response.data.status === 'success') {
+        // 2. Salva Sucesso no estado da conversa
+        updateCopilotState(activeConversationId, {
+            suggestions: response.data.suggestions,
+            queryType: isPrivate ? 'internal' : 'analysis',
+            isLoading: false
+        });
+      } else {
+        updateCopilotState(activeConversationId, {
+            suggestions: { immediate_answer: "Não foi possível gerar uma resposta." },
+            isLoading: false
+        });
+      }
+    } catch (error) {
+      console.error("❌ Erro Copilot:", error);
+      updateCopilotState(activeConversationId, {
+        suggestions: { immediate_answer: "Erro de conexão com a IA." },
+        isLoading: false
+      });
+    }
+  };
+
+  const handleSuggestionRequest = useCallback((msg) => {
+    _sendToAi(msg, false);
+  }, [activeConversationId, updateCopilotState]); // Adicione updateCopilotState nas deps
+
+  const handleInternalQuery = useCallback((question) => {
+    _sendToAi(question, true);
+  }, [activeConversationId, updateCopilotState]);
 
   return {
-    suggestionsByConvo,
-    stagesByConvo,
+    isCopilotLoading,
+    suggestions,
+    lastAnalyzedMessage,
+    queryType,
     handleSuggestionRequest,
-    handleUseSuggestion,
-    handleDeleteSuggestion,
-    handleClearSuggestions,
-    handlePrivateSuggestionRequest,
+    handleInternalQuery,
+    clearSuggestions
   };
 }

@@ -40,3 +40,13 @@ class ConversationListResponse(BaseModel):
     """
     status: str
     conversations: List[Dict[str, Any]]
+
+# ... (código anterior)
+
+class CopilotAnalyzeRequest(BaseModel):
+    contact_id: str = Field(..., description="ID do contato")
+    query: str = Field(..., description="Mensagem")
+    is_private: Optional[bool] = Field(False, description="Se for True, a IA responde ao vendedor, não gera sugestão para o cliente.")
+
+class FetchProfilePictureRequest(BaseModel):
+    number: str = Field(..., description="Número do contato (sem @s.whatsapp.net)")

@@ -1,22 +1,15 @@
 // Em frontend/src/hooks/useChatData.js
-// (ARQUIVO NOVO)
-
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../services/api';
 
-/**
- * Hook (Refatorado)
- * Responsabilidade Única: Gerenciar o estado dos dados,
- * o polling da lista e o cache de mensagens.
- */
 export function useChatData(token, instanceConnected) {
   const [conversations, setConversations] = useState({});
   const [activeConversationId, setActiveConversationId] = useState(null);
-  const [isLoading, setIsLoading] = useState(true); // Loading inicial da lista
-  const [isLoadingMessages, setIsLoadingMessages] = useState(false); // Loading de mensagens
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [error, setError] = useState('');
 
-  // --- DADOS DERIVADOS (useMemo) ---
+  // --- DADOS DERIVADOS ---
   const unreadCount = useMemo(() => {
     return Object.values(conversations).reduce((count, convo) => {
       return convo.unread ? count + 1 : count;
@@ -28,84 +21,101 @@ export function useChatData(token, instanceConnected) {
     return conversations[activeConversationId]?.messages || [];
   }, [activeConversationId, conversations]);
 
-  // --- AÇÕES DE DADOS (useCallback) ---
+  // --- AÇÕES ---
 
-  // 1. Polling (Corrigido o loop infinito)
   const fetchConversations = useCallback(async () => {
     if (!token) return;
     try {
       const { data } = await api.get('/conversations/');
       if (data && data.status === 'success') {
-        // Usa a forma funcional do setter (evita loop)
         setConversations(prevConvos => {
           const newConvosMap = data.conversations.reduce((acc, convo) => {
+            // PRESERVA O ESTADO DO COPILOT (Se já existir)
+            const existingCopilot = prevConvos[convo.id]?.copilot || null;
             const existingMessages = prevConvos[convo.id]?.messages || [];
-            acc[convo.id] = { ...convo, messages: existingMessages };
+
+            // ✨ CORREÇÃO: Normaliza o Avatar
+            // Procura em vários campos possíveis que o backend possa estar enviando
+            const normalizedAvatar =
+                convo.avatar_url ||
+                convo.profile_picture_url ||
+                convo.profilePictureUrl ||
+                convo.pic ||
+                null;
+
+            acc[convo.id] = {
+                ...convo,
+                avatar_url: normalizedAvatar, // Garante que o campo 'avatar_url' sempre exista
+                messages: existingMessages,
+                copilot: existingCopilot
+            };
             return acc;
           }, {});
           return newConvosMap;
         });
       }
     } catch (err) {
-      console.error("[fetchConversations] Erro:", err.response ? err.response.data : err.message);
-      setError('Falha ao buscar conversas.');
+      console.error("[fetchConversations] Erro:", err);
     } finally {
       setIsLoading(false);
     }
-  }, [token]); // Removida a dependência 'conversations'
+  }, [token]);
 
-  // 2. Seleção de Chat (com Cache)
   const handleConversationSelect = useCallback(async (convoId) => {
     if (!convoId || convoId === activeConversationId) return;
-
     setActiveConversationId(convoId);
 
-    // 💡 Usa 'setConversations' para ler o estado mais recente
     setConversations(prevConvos => {
       const hasMessages = prevConvos[convoId]?.messages?.length > 0;
 
-      // CACHE HIT
       if (hasMessages) {
         setIsLoadingMessages(false);
-        api.post(`/conversations/${convoId}/mark-read`); // (em background)
-        return prevConvos; // Retorna o estado sem mudanças
+        api.post(`/conversations/${convoId}/mark-read`).catch(() => {});
+        return prevConvos;
       }
 
-      // CACHE MISS
       setIsLoadingMessages(true);
 
-      // Busca assíncrona (não pode estar dentro do setter)
       (async () => {
         try {
-          api.post(`/conversations/${convoId}/mark-read`);
+          api.post(`/conversations/${convoId}/mark-read`).catch(() => {});
           const { data } = await api.get(`/conversations/${convoId}/messages`);
-          const fetchedMessages = data || [];
+          const fetchedMessages = (data || []).map(msg => {
+              const isSeller = msg.sender === 'me' || msg.sender === 'vendedor' || msg.fromMe === true;
+              return {
+                  ...msg,
+                  media_type: msg.media_type || 'text',
+                  sender: isSeller ? 'vendedor' : 'cliente'
+              };
+          });
 
-          // Salva no cache
           setConversations(pConvos => ({
               ...pConvos,
-              [convoId]: { ...pConvos[convoId], messages: fetchedMessages }
+              [convoId]: {
+                ...pConvos[convoId],
+                messages: fetchedMessages,
+                unread: 0
+              }
           }));
         } catch (err) {
-          console.error(`[handleConversationSelect] Erro ao buscar mensagens para ${convoId}:`, err);
+          console.error(`Erro ao buscar mensagens:`, err);
           setError('Falha ao carregar mensagens.');
         } finally {
           setIsLoadingMessages(false);
         }
       })();
 
-      return prevConvos; // Retorna o estado original (será atualizado pelo async)
+      return { ...prevConvos, [convoId]: { ...prevConvos[convoId], unread: 0 } };
     });
-  }, [activeConversationId]); // Removido 'conversations'
+  }, [activeConversationId]);
 
-  // 3. Iniciar Nova Conversa
   const handleStartConversation = useCallback(async (number, message) => {
     try {
       await api.post('/new-conversation', {
         recipient_number: number,
         initial_message: message,
       });
-      setTimeout(fetchConversations, 1000);
+      setTimeout(fetchConversations, 500);
       return true;
     } catch (err) {
       console.error("Erro ao iniciar conversa:", err);
@@ -113,7 +123,84 @@ export function useChatData(token, instanceConnected) {
     }
   }, [fetchConversations]);
 
-  // --- EFEITO DE POLLING ---
+  const handleSendMessage = useCallback(async (text) => {
+    if (!activeConversationId || !text.trim()) return false;
+
+    const tempId = `temp-${Date.now()}`;
+    const newMessageObj = {
+        id: tempId,
+        contact_id: activeConversationId,
+        content: text,
+        sender: 'vendedor',
+        timestamp: Math.floor(Date.now() / 1000),
+        status: 'sending',
+        media_type: 'text',
+    };
+
+    setConversations(prev => {
+        const currentConvo = prev[activeConversationId];
+        if (!currentConvo) return prev;
+        const newMessages = [...(currentConvo.messages || []), newMessageObj];
+        return {
+            ...prev,
+            [activeConversationId]: {
+                ...currentConvo,
+                lastMessage: text,
+                timestamp: Math.floor(Date.now() / 1000),
+                messages: newMessages
+            }
+        };
+    });
+
+    try {
+        const response = await api.post('/evolution/message/send', {
+            contact_id: activeConversationId,
+            text: text
+        });
+        const realMessageId = response.data?.message_id || tempId;
+        setConversations(prev => {
+            const currentConvo = prev[activeConversationId];
+            if (!currentConvo) return prev;
+            const updatedMessages = currentConvo.messages.map(msg =>
+                msg.id === tempId ? { ...msg, id: realMessageId, status: 'delivered' } : msg
+            );
+            return {
+                ...prev,
+                [activeConversationId]: { ...currentConvo, messages: updatedMessages }
+            };
+        });
+        return true;
+    } catch (err) {
+        console.error("Erro ao enviar mensagem:", err);
+        setConversations(prev => {
+            const currentConvo = prev[activeConversationId];
+            if (!currentConvo) return prev;
+            const updatedMessages = currentConvo.messages.map(msg =>
+                msg.id === tempId ? { ...msg, status: 'failed' } : msg
+            );
+            return {
+                ...prev,
+                [activeConversationId]: { ...currentConvo, messages: updatedMessages }
+            };
+        });
+        return false;
+    }
+  }, [activeConversationId]);
+
+  const updateCopilotState = useCallback((convoId, newState) => {
+    setConversations(prev => {
+      const convo = prev[convoId];
+      if (!convo) return prev;
+      return {
+        ...prev,
+        [convoId]: {
+          ...convo,
+          copilot: { ...(convo.copilot || {}), ...newState }
+        }
+      };
+    });
+  }, []);
+
   useEffect(() => {
     let intervalId = null;
     if (token && instanceConnected) {
@@ -125,7 +212,6 @@ export function useChatData(token, instanceConnected) {
     };
   }, [token, instanceConnected, fetchConversations]);
 
-  // --- RETORNO DO HOOK DE DADOS ---
   return {
     conversations,
     activeConversationId,
@@ -134,8 +220,10 @@ export function useChatData(token, instanceConnected) {
     isLoadingMessages,
     error,
     unreadCount,
-    setActiveConversationId, // Exposto para o useChatUI
+    setActiveConversationId,
     handleConversationSelect,
     handleStartConversation,
+    handleSendMessage,
+    updateCopilotState,
   };
 }

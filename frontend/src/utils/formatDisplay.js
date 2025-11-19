@@ -1,47 +1,43 @@
-// Em frontend/src/utils/formatDisplay.js
+// frontend/src/utils/formatDisplay.js
+
 // URL para uma imagem de perfil padrão no estilo do WhatsApp
 export const DEFAULT_AVATAR_URL = 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png';
+
 export const formatContactName = (name) => {
-  // Se 'name' não for uma string ou estiver vazio, retorna um placeholder.
-  if (typeof name !== 'string' || !name) {
-    return 'Carregando...';
-  }
+  if (typeof name !== 'string' || !name) return 'Carregando...';
+  if (!name.includes('@')) return name;
 
-  // Se o nome não contiver '@', significa que já é um nome de contato (ex: "Osvaldo Netto").
-  if (!name.includes('@')) {
-    return name;
-  }
-
-  // Se contiver '@', é um JID (número). Vamos formatá-lo.
-  const numberOnly = name.split('@')[0]; // Pega apenas a parte do número, ex: "5541984469423"
-
-  // Verifica se é um número de celular brasileiro padrão (DDI 55 + 11 dígitos)
+  const numberOnly = name.split('@')[0];
   if (numberOnly.startsWith('55') && numberOnly.length === 13) {
-    const ddd = numberOnly.substring(2, 4); // Pega o DDD, ex: "41"
-    const mainNumber = numberOnly.substring(4); // Pega o resto, ex: "984469423"
-
-    // Formata o número principal em dois blocos
-    const firstPart = mainNumber.substring(0, 5); // ex: "98446"
-    const secondPart = mainNumber.substring(5); // ex: "9423"
-
-    return `${ddd} ${firstPart}-${secondPart}`; // Retorna "41 98446-9423"
+    const ddd = numberOnly.substring(2, 4);
+    const firstPart = numberOnly.substring(4, 9);
+    const secondPart = numberOnly.substring(9);
+    return `(${ddd}) ${firstPart}-${secondPart}`;
   }
-
-  // Se não for um número brasileiro padrão, retorna o número limpo.
   return numberOnly;
 };
 
 export const formatMessageTimestamp = (unixTimestamp) => {
-  // Se não houver timestamp, retorna uma string vazia.
-  if (!unixTimestamp) {
-    return '';
-  }
-
-  // O timestamp da API vem em segundos, o JavaScript Date() precisa de milissegundos.
+  if (!unixTimestamp) return '';
   const date = new Date(unixTimestamp * 1000);
-
   const hours = date.getHours().toString().padStart(2, '0');
   const minutes = date.getMinutes().toString().padStart(2, '0');
-
   return `${hours}:${minutes}`;
+};
+
+// 👇 A FUNÇÃO QUE FALTAVA (Adicionada Corretamente)
+export const formatTimeShort = (unixTimestamp) => {
+  if (!unixTimestamp) return '';
+  const date = new Date(unixTimestamp * 1000);
+  const now = new Date();
+
+  // Se for hoje, retorna hora:minuto
+  if (date.toDateString() === now.toDateString()) {
+    return formatMessageTimestamp(unixTimestamp);
+  }
+
+  // Se for outro dia, retorna dia/mês
+  const day = date.getDate().toString().padStart(2, '0');
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  return `${day}/${month}`;
 };

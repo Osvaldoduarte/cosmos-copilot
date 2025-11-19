@@ -1,33 +1,31 @@
 // Em frontend/src/context/ChatContext.js
-// (SUBSTITUA o conteúdo deste arquivo)
-
 import React, { createContext, useContext } from 'react';
 import { useAuth } from '../hooks/useAuth';
-
-// 1. Importa os 3 novos hooks
 import { useChatData } from '../hooks/useChatData';
 import { useChatUI } from '../hooks/useChatUI';
 import { useChatCopilot } from '../hooks/useChatCopilot';
 
-// 2. Deleta a importação antiga
-// import { useChatManager } from '../hooks/useChatManager';
-
-// 1. Criar o Contexto
 const ChatContext = createContext(null);
 
-// 2. Criar o Provedor (Provider)
 export function ChatProvider({ children }) {
   const { token, instanceConnected } = useAuth();
 
-  // 3. Chama os 3 hooks
+  // 1. Dados (agora retorna updateCopilotState)
   const dataState = useChatData(token, instanceConnected);
+
+  // 2. UI
   const uiState = useChatUI(dataState.setActiveConversationId);
+
+  // 3. Copilot
+  // Passamos dataState.conversations para leitura
+  // E dataState.updateCopilotState para escrita
   const copilotState = useChatCopilot(
     dataState.conversations,
-    dataState.activeConversationId
+    dataState.activeConversationId,
+    uiState.setIsCopilotOpen,
+    dataState.updateCopilotState // <--- CONEXÃO AQUI
   );
 
-  // 4. Combina tudo
   const combinedState = {
     ...dataState,
     ...uiState,
@@ -41,7 +39,6 @@ export function ChatProvider({ children }) {
   );
 }
 
-// 3. Criar o Hook de Consumidor
 export function useChat() {
   const context = useContext(ChatContext);
   if (context === null) {

@@ -1,19 +1,24 @@
-# Ignorar o Git
+# --- Configurações do Git e IDE ---
 .git/
 .gitignore
-
-# Ignorar arquivos de IDE e Sistema
 .idea/
 .vscode/
 .DS_Store
 
-# Ignorar o node_modules do frontend
-node_modules/
-frontend/node_modules/
+# --- O VILÃO DO PESO (Ambiente Virtual) ---
+# Como você já está na pasta backend, não use "backend/" antes
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
 
-# --- O IMPORTANTE ---
-# Ignorar caches e venv DENTRO do backend
-backend/venv/
-backend/.venv/
-backend/__pycache__/
-backend/*.pyc
+# --- BANCOS DE DADOS LOCAIS (Muito Importante) ---
+# Isso está pesando muito e não deve subir
+chroma_db_conversas/
+chroma_db_local/
+data/
+
+# --- SEGURANÇA ---
+# Nunca suba suas chaves locais
+.env

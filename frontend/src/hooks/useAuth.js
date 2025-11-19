@@ -1,13 +1,8 @@
-// Em frontend/src/hooks/useAuth.js (ou context/AuthContext.js)
-// (ADICIONE o 'export AuthProvider' se estiver faltando)
-
 import React, { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import api from '../services/api';
 
-// 💡 PASSO 1: Crie o Contexto
 const AuthContext = createContext(null);
 
-// 💡 PASSO 2: Crie o Hook (como você já tinha)
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === null) {
@@ -16,7 +11,6 @@ export function useAuth() {
   return context;
 }
 
-// 💡 PASSO 3: Crie o Provider (A PARTE QUE FALTAVA EXPORTAR)
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(localStorage.getItem('authToken'));
   const [user, setUser] = useState(null);
@@ -24,6 +18,8 @@ export function AuthProvider({ children }) {
   const [isLoginLoading, setIsLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [isStatusLoading, setIsStatusLoading] = useState(true);
+
+  const isAuthenticated = !!token;
 
   useEffect(() => {
     const checkInstanceStatus = async () => {
@@ -38,19 +34,18 @@ export function AuthProvider({ children }) {
           }
         } catch (err) {
           console.error("Erro ao verificar status, desconectando:", err);
-          handleLogout(); // Força o logout se o token for inválido
+          handleLogout();
         } finally {
           setIsStatusLoading(false);
         }
       } else {
-        setIsStatusLoading(false); // Sem token, não há o que carregar
+        setIsStatusLoading(false);
       }
     };
     checkInstanceStatus();
-  }, [token]); // 'handleLogout' não precisa ser dependência aqui
+  }, [token]);
 
   const handleLogin = useCallback(async (username, password) => {
-    // (Sua lógica de login...)
     setIsLoginLoading(true);
     setLoginError(null);
     try {
@@ -58,17 +53,21 @@ export function AuthProvider({ children }) {
       formData.append('username', username);
       formData.append('password', password);
       const { data } = await api.post('/token', formData);
+
       if (data && data.access_token) {
         const newToken = data.access_token;
         localStorage.setItem('authToken', newToken);
         setToken(newToken);
+        setIsLoginLoading(false);
+        return true;
       } else {
         throw new Error("Resposta de login inválida.");
       }
     } catch (err) {
       setLoginError('Usuário ou senha inválidos.');
+      setIsLoginLoading(false);
+      return false;
     }
-    setIsLoginLoading(false);
   }, []);
 
   const handleLogout = useCallback(() => {
@@ -82,15 +81,17 @@ export function AuthProvider({ children }) {
     setInstanceConnected(true);
   }, []);
 
+  // ✨ CERTIFIQUE-SE QUE handleConnectSuccess ESTÁ AQUI
   const value = {
     token,
     user,
+    isAuthenticated,
     instanceConnected,
     isLoading: isLoginLoading || isStatusLoading,
     loginError,
     handleLogin,
     handleLogout,
-    handleConnectSuccess,
+    handleConnectSuccess, // <--- AQUI
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

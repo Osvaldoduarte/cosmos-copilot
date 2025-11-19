@@ -1,107 +1,181 @@
-// Em frontend/src/components/CopilotPanel.js
-// (SUBSTITUA o conteúdo deste arquivo)
-
-import React, { useState, useMemo } from 'react';
+// frontend/src/components/CopilotPanel.js
+import React, { useMemo, useState, useEffect } from 'react';
 import { useChat } from '../context/ChatContext';
-// 💡 REMOVIDO: import { Droppable } from 'react-beautiful-dnd';
+import VideoSuggestionCard from './VideoSuggestionCard';
 
-// --- Ícones ---
-const ClearSuggestionsIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke="currentColor" strokeWidth="2" fill="none"/></svg>);
-// 💡 REMOVIDO: const DragDropIcon = () => (...)
-// --- Fim dos Ícones ---
+// Ícones
+const CloseIcon = () => <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>;
+// const CopyIcon = () => ... (Removido pois vamos usar o de enviar)
+const SendPlaneIcon = () => <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>;
+const MagicIcon = () => <span>✨</span>;
+// Ícone específico para o botão "Usar Sugestão" (Seta curva de resposta)
+const ReplyIcon = () => <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>;
 
 
 function CopilotPanel() {
-  const [privateQuery, setPrivateQuery] = useState('');
-
   const {
-    activeConversationId,
-    suggestionsByConvo,
-    handlePrivateSuggestionRequest,
-    handleUseSuggestion,
-    handleDeleteSuggestion,
-    handleClearSuggestions,
-  } = useChat(); // 💡 handleMessageDrop removido daqui
+    conversations, activeConversationId,
+    suggestions, isCopilotLoading, lastAnalyzedMessage, queryType,
+    clearSuggestions, handleToggleCopilot, handleInternalQuery,
+    handleSendMessage // <--- 1. IMPORTAMOS A FUNÇÃO DE ENVIO AQUI
+  } = useChat();
 
-  const isChatLoading = false;
-  const chatError = null;
+  const [internalInput, setInternalInput] = useState('');
+  const [isExiting, setIsExiting] = useState(false);
+  const [loadingText, setLoadingText] = useState('Consultando Cérebro...');
 
-  const activeSuggestions = useMemo(() => {
-    if (!activeConversationId) return [];
-    return suggestionsByConvo[activeConversationId]?.suggestions || [];
-  }, [activeConversationId, suggestionsByConvo]);
+  React.useEffect(() => {
+    if (!isCopilotLoading) return;
 
-  const activeVideo = useMemo(() => {
-    if (!activeConversationId) return null;
-    return suggestionsByConvo[activeConversationId]?.video || null;
-  }, [activeConversationId, suggestionsByConvo]);
+    const messages = [
+      "Consultando Cérebro...",
+      "Analisando o sentimento do cliente...",
+      "Buscando melhores estratégias...",
+      "Verificando histórico da conversa...",
+      "Criando resposta persuasiva..."
+    ];
 
-  const handlePrivateQuerySubmit = (e) => {
-    e.preventDefault();
-    if (privateQuery.trim()) {
-      handlePrivateSuggestionRequest(privateQuery);
-      setPrivateQuery('');
-    }
+    let i = 0;
+    setLoadingText(messages[0]); // Reseta para a primeira
+
+    const interval = setInterval(() => {
+      i = (i + 1) % messages.length;
+      setLoadingText(messages[i]);
+    }, 2500); // Troca a cada 2.5 segundos
+
+    return () => clearInterval(interval);
+  }, [isCopilotLoading]);
+
+  const activeChat = useMemo(() => {
+    if (!conversations || !activeConversationId) return null;
+    return conversations[activeConversationId];
+  }, [conversations, activeConversationId]);
+
+  const handleInternalSubmit = (event) => {
+    event.preventDefault();
+    if (!internalInput.trim()) return;
+    handleInternalQuery(internalInput);
+    setInternalInput('');
   };
+
+  // --- 2. NOVA FUNÇÃO: Envia direto em vez de copiar ---
+
+  const handleUseSuggestion = async (text) => {
+    if (!text) return;
+
+    // 1. Envia a mensagem imediatamente
+    await handleSendMessage(text);
+
+    // 2. Ativa a animação de saída
+    setIsExiting(true);
+
+    // 3. Aguarda o tempo da animação (400ms do CSS) antes de limpar os dados
+    setTimeout(() => {
+        clearSuggestions();
+        setIsExiting(false); // Reseta o estado local
+    }, 400);
+  };
+
+  if (!activeChat) return null;
 
   return (
     <div className="copilot-panel">
-      {/* --- CABEÇALHO --- */}
+
+      {/* --- 1. HEADER (INPUT INTERNO) --- */}
       <div className="copilot-header">
-        <h4>Copilot (IA)</h4>
-        <button
-          className="clear-suggestions-btn"
-          onClick={() => handleClearSuggestions()}
-        >
-          <ClearSuggestionsIcon />
-        </button>
-      </div>
-
-      {/* --- INPUT PRIVADO --- */}
-<div className="copilot-input">
-        {/* 💡 Classe adicionada ao formulário */}
-        <form onSubmit={handlePrivateQuerySubmit} className="private-query-form">
-          <input
-            type="text"
-            // ...
-          />
-          <button type="submit">Enviar</button>
-        </form>
-
-        {/* 💡 CORREÇÃO: Removida a área de Drag-and-Drop */}
-        {/* <div className="drag-drop-prompt"> ... </div> */}
-      </div>
-
-      {/* --- LISTA DE SUGESTÕES --- */}
-      <div className="copilot-output">
-        {isChatLoading && <div className="loading-placeholder">Gerando sugestão...</div>}
-        {chatError && <div className="error-message">{chatError}</div>}
-
-        {/* <VideoSuggestionCard video={activeVideo} /> (Seu componente) */}
-
-        <div className="suggestions-list">
-          {activeSuggestions.length > 0 ? (
-            activeSuggestions.map((sug) => (
-              <div key={sug.id} className="suggestion-card">
-                <p>{sug.text}</p>
-                <button onClick={() => handleUseSuggestion(sug.id, sug.text)}>
-                  Usar
-                </button>
-                <button onClick={() => handleDeleteSuggestion(sug.id)}>
-                  X
-                </button>
-              </div>
-            ))
-          ) : (
-            !isChatLoading && (
-              <div className="empty-placeholder">
-                Use o clique direito em uma<br/>
-                mensagem do cliente para<br/>
-                enviar à IA.
-              </div>
-            )
-          )}
+        <div className="header-controls">
+           <form onSubmit={handleInternalSubmit} className="ai-input-form glass-input">
+            <input
+              type="text"
+              placeholder="Pergunte ao Cérebro..."
+              value={internalInput}
+              onChange={(event) => setInternalInput(event.target.value)}
+              className="ai-input"
+            />
+            <button type="submit" className="ai-send-btn" disabled={isCopilotLoading}>
+              <SendPlaneIcon />
+            </button>
+          </form>
+          <button className="icon-button close-btn" onClick={handleToggleCopilot}>
+            <CloseIcon />
+          </button>
         </div>
+      </div>
+
+      {/* --- 2. CORPO --- */}
+      <div className="copilot-body">
+
+        {/* ANIMAÇÃO DE CARREGAMENTO */}
+        {isCopilotLoading && (
+          <div className="copilot-loading">
+            <div className="ai-orb"></div>
+            <p style={{ minHeight: '1.5em', transition: 'all 0.3s' }}>
+      {loadingText}
+    </p>
+          </div>
+        )}
+
+        {!isCopilotLoading && !suggestions && (
+          <div className="copilot-loading">
+            <div className="empty-icon"><MagicIcon /></div>
+            <p>Selecione uma mensagem ou digite acima para ativar a IA.</p>
+          </div>
+        )}
+
+        {!isCopilotLoading && suggestions && (
+          <div className="suggestion-wrapper fade-in">
+
+            {/* Contexto */}
+            <div className="context-badge">
+              {queryType === 'analysis' ? 'Análise de Cliente' : 'Resposta Interna'}
+            </div>
+
+            {lastAnalyzedMessage && queryType === 'analysis' && (
+               <p className="context-text">"{lastAnalyzedMessage}"</p>
+            )}
+
+            {/* CARD LIQUID GLASS - Resposta Imediata */}
+            {suggestions.immediate_answer && (
+              <div className="glass-card main-card">
+                <div className="card-header">
+                  <h4>Sugestão</h4>
+                </div>
+                <div className="card-content">
+                  {suggestions.immediate_answer}
+                </div>
+
+                {/* 3. BOTÃO ALTERADO: Usar Sugestão */}
+                <button
+                  className="action-btn primary-glass-btn"
+                  onClick={() => handleUseSuggestion(suggestions.immediate_answer)}
+                >
+                  <ReplyIcon /> Usar Sugestão
+                </button>
+              </div>
+            )}
+
+            {/* Sugestão de Vídeo */}
+            {suggestions.video && (
+                <VideoSuggestionCard video={suggestions.video} />
+            )}
+
+            {/* Próximos Passos */}
+            {suggestions.follow_up_options?.map((option, index) => (
+              <div key={index} className="glass-card secondary-card">
+                <h4>🎯 Próximo Passo</h4>
+                <p>{option.text}</p>
+                {/* O botão foi removido daqui, tornando o card apenas informativo */}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* --- 3. FOOTER FIXO --- */}
+      <div className="copilot-footer">
+        <button className="clear-btn" onClick={clearSuggestions}>
+          Limpar Histórico
+        </button>
       </div>
     </div>
   );

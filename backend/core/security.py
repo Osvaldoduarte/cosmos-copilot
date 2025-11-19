@@ -1,27 +1,41 @@
 # Em backend/core/security.py
-# (SUBSTITUA o conteúdo deste arquivo)
+# (SUBSTITUA O ARQUIVO INTEIRO)
 
 import os
+# 💡 Importante para segurança
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-import bcrypt  # Usando bcrypt nativo como no seu arquivo original
+import bcrypt
 
 from core import database
-from schemas import UserInDB, TokenData  # Importando do novo schemas.py
+from schemas import UserInDB, TokenData
 
-# --- Configuração do JWT (Movido de main.py) ---
-SECRET_KEY = os.getenv("SECRET_KEY", "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7")
+# --- Configuração do JWT ---
+
+# 1. Tenta pegar do ambiente (Cloud Run)
+SECRET_KEY = os.getenv("SECRET_KEY")
+
+# 2. Lógica de Segurança para Produção
+if not SECRET_KEY:
+    # Se não tiver chave definida, geramos uma aleatória na hora.
+    # AVISO: Isso invalida todos os logins sempre que o servidor reinicia (deploy).
+    # É seguro, mas pode ser chato para o usuário se o deploy for frequente.
+    print("⚠️  [SECURITY] ATENÇÃO: SECRET_KEY não encontrada no .env. Gerando chave temporária e aleatória.")
+    print("⚠️  [SECURITY] Para persistência de login entre deploys, configure a variável SECRET_KEY no Cloud Run.")
+    SECRET_KEY = secrets.token_urlsafe(64)
+
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 dias
 
-# --- Dependência OAuth2 (Movido de main.py) ---
+# --- Dependência OAuth2 ---
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
-# --- Funções de Hash (Do seu arquivo original) ---
+# --- Funções de Hash ---
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica se uma senha em texto plano corresponde a um hash usando bcrypt."""
@@ -46,34 +60,22 @@ def get_password_hash(password: str) -> str:
         raise
 
 
-# --- Funções de Lógica de Autenticação (Movidas de main.py) ---
+# --- Funções de Lógica de Autenticação ---
 
 def authenticate_user(username: str, password: str) -> Optional[UserInDB]:
     """
     Verifica se um usuário existe e se a senha está correta.
-    Retorna o objeto UserInDB se for bem-sucedido, None caso contrário.
     """
-    print(f"--- [DEBUG authenticate_user] Iniciando verificação ---")
-    print(f"Buscando usuário: '{username}'")
-    user_data = database.get_user(username)  # Busca do DB (dicionário)
+    # print(f"--- [DEBUG Auth] Buscando: '{username}'") # 💡 Comentei logs excessivos para produção
+    user_data = database.get_user(username)
 
     if not user_data:
-        print(f"[DEBUG authenticate_user] Usuário não encontrado.")
         return None
 
-    print(f"[DEBUG authenticate_user] Usuário encontrado: {user_data['username']}")
-
-    # Converte o dicionário do DB para o modelo Pydantic UserInDB
     user = UserInDB(**user_data)
-
-    print(f"[DEBUG authenticate_user] Hash armazenado: '{user.hashed_password}'")
-    print(f"[DEBUG authenticate_user] Verificando senha digitada ('{password}') contra o hash...")
-
     if not verify_password(password, user.hashed_password):
-        print(f"[DEBUG authenticate_user] Verificação de senha: INCORRETA.")
         return None
 
-    print(f"[DEBUG authenticate_user] Verificação de senha: CORRETA.")
     return user
 
 
@@ -90,26 +92,32 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt
 
 
-# --- Funções de Dependência de Segurança (Movidas de main.py) ---
+# --- Funções de Dependência de Segurança ---
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserInDB:
-    """
-    Dependência FastAPI: Decodifica o token, valida e retorna o usuário.
-    (Esta era a função que estava faltando no security.py)
-    """
+async def get_current_user(
+        request: Request,  # 💡 Adicionado para ler query params
+        token: Optional[str] = Depends(oauth2_scheme)
+) -> UserInDB:
+    # 1. Tenta pegar do Header (oauth2_scheme faz isso, mas pode falhar se vier vazio)
+    # 2. Se falhar, tenta pegar da Query String (?token=...)
+    if not token:
+        token = request.query_params.get("token")
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Não foi possível validar as credenciais",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    if not token:
+        raise credentials_exception
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
-
         token_data = TokenData(username=username)
-
     except JWTError:
         raise credentials_exception
 
@@ -122,10 +130,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserInDB:
 
 
 async def get_current_active_user(current_user: UserInDB = Depends(get_current_user)) -> UserInDB:
-    """
-    Dependência FastAPI: Pega o usuário atual e verifica se ele está ativo.
-    (Esta era a função que estava faltando no security.py)
-    """
     if current_user.disabled:
         raise HTTPException(status_code=400, detail="Usuário inativo")
     return current_user
