@@ -1,0 +1,1019 @@
+/* landing.css */
+
+/* --- BASE --- */
+.landing-wrapper {
+    background-color: #020617;
+    color: #f8fafc;
+
+    /* CORREÇÃO DO SCROLL: */
+    height: 100vh;
+    /* Ocupa a altura total da tela */
+    overflow-y: auto;
+    /* Permite rolar verticalmente dentro deste container */
+    overflow-x: hidden;
+    /* Evita rolagem lateral */
+
+    font-family: 'Inter', sans-serif;
+    position: relative;
+}
+
+/* --- NAVBAR --- */
+.landing-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 10;
+}
+
+.nav-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 800;
+    font-size: 1.2rem;
+    letter-spacing: -0.5px;
+}
+
+.logo-symbol {
+    font-size: 1.5rem;
+    color: #3b82f6;
+    animation: spin-slow 10s linear infinite;
+}
+
+@keyframes spin-slow {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.nav-actions {
+    display: flex;
+    gap: 1rem;
+}
+
+.btn-login-outline {
+    background: transparent;
+    border: 1px solid #334155;
+    color: #cbd5e1;
+    padding: 0.6rem 1.2rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: 0.3s;
+}
+
+.btn-login-outline:hover {
+    border-color: #f8fafc;
+    color: #f8fafc;
+}
+
+.btn-cta-small {
+    background: #3b82f6;
+    border: none;
+    color: white;
+    padding: 0.6rem 1.2rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: 0.3s;
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+}
+
+.btn-cta-small:hover {
+    background: #2563eb;
+    transform: translateY(-2px);
+}
+
+/* --- HERO SECTION --- */
+.hero-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+    gap: 4rem;
+    max-width: 1200px;
+    margin: 4rem auto;
+    padding: 0 2rem;
+    position: relative;
+}
+
+@media (max-width: 900px) {
+    .hero-section {
+        grid-template-columns: 1fr;
+        text-align: center;
+        margin-top: 2rem;
+    }
+
+    .hero-buttons {
+        justify-content: center;
+    }
+
+    .hero-stats {
+        justify-content: center;
+    }
+}
+
+.badge-new {
+    display: inline-block;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    color: #60a5fa;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+}
+
+.hero-title {
+    font-size: 3.5rem;
+    line-height: 1.1;
+    font-weight: 800;
+    margin-bottom: 1.5rem;
+}
+
+.text-gradient {
+    background: linear-gradient(135deg, #60a5fa 0%, #c084fc 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.hero-subtitle {
+    font-size: 1.1rem;
+    color: #94a3b8;
+    line-height: 1.6;
+    margin-bottom: 2.5rem;
+    max-width: 500px;
+}
+
+.hero-buttons {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 3rem;
+}
+
+.btn-cta-large {
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+    border: none;
+    color: white;
+    padding: 1rem 2rem;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: 0.3s;
+    box-shadow: 0 10px 30px -10px rgba(139, 92, 246, 0.6);
+}
+
+.btn-cta-large:hover {
+    transform: translateY(-3px);
+    filter: brightness(1.1);
+}
+
+.btn-secondary-large {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: white;
+    padding: 1rem 2rem;
+    border-radius: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+.btn-secondary-large:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.hero-stats {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    color: #cbd5e1;
+}
+
+.stat-item strong {
+    display: block;
+    font-size: 1.5rem;
+    color: white;
+}
+
+.stat-item span {
+    font-size: 0.85rem;
+    color: #64748b;
+}
+
+.separator {
+    width: 1px;
+    height: 30px;
+    background: #334155;
+}
+
+/* --- MOCKUP VISUAL --- */
+.hero-visual {
+    position: relative;
+    display: flex;
+    justify-content: center;
+}
+
+.glass-mockup {
+    width: 100%;
+    max-width: 400px;
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    transform: perspective(1000px) rotateY(-10deg) rotateX(5deg);
+    transition: transform 0.5s ease;
+    position: relative;
+}
+
+.glass-mockup:hover {
+    transform: perspective(1000px) rotateY(0) rotateX(0) scale(1.02);
+}
+
+.mockup-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    padding-bottom: 10px;
+}
+
+.dots span {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #334155;
+    margin-right: 6px;
+}
+
+.dots span:nth-child(1) {
+    background: #ef4444;
+}
+
+.dots span:nth-child(2) {
+    background: #f59e0b;
+}
+
+.dots span:nth-child(3) {
+    background: #22c55e;
+}
+
+.mockup-title {
+    font-size: 0.8rem;
+    color: #64748b;
+    font-weight: bold;
+}
+
+.mockup-body {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.msg {
+    padding: 12px;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+.msg.received {
+    background: #1e293b;
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+    color: #e2e8f0;
+}
+
+.msg.sent {
+    background: #3b82f6;
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+    color: white;
+    position: relative;
+}
+
+.ai-tag {
+    position: absolute;
+    top: -18px;
+    right: 0;
+    font-size: 0.65rem;
+    color: #a78bfa;
+    font-weight: bold;
+    text-transform: uppercase;
+    background: rgba(139, 92, 246, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.glow-effect {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 150%;
+    height: 150%;
+    background: radial-gradient(circle, rgba(59, 130, 246, 0.2) 0%, transparent 70%);
+    z-index: -1;
+    pointer-events: none;
+}
+
+/* --- FEATURES SECTION --- */
+.features-section {
+    max-width: 1200px;
+    margin: 5rem auto;
+    padding: 0 2rem;
+    text-align: center;
+}
+
+.section-title {
+    font-size: 2rem;
+    margin-bottom: 3rem;
+}
+
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+}
+
+.feature-card {
+    background: rgba(30, 41, 59, 0.4);
+    border: 1px solid #334155;
+    padding: 2rem;
+    border-radius: 16px;
+    text-align: left;
+    transition: 0.3s;
+}
+
+.feature-card:hover {
+    background: rgba(30, 41, 59, 0.8);
+    transform: translateY(-5px);
+    border-color: #60a5fa;
+}
+
+.feature-icon {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+    display: inline-block;
+    padding: 10px;
+    border-radius: 12px;
+}
+
+.feature-icon.blue {
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.feature-icon.purple {
+    background: rgba(168, 85, 247, 0.1);
+}
+
+.feature-icon.green {
+    background: rgba(34, 197, 94, 0.1);
+}
+
+.feature-card h3 {
+    font-size: 1.2rem;
+    margin-bottom: 0.5rem;
+    color: #f8fafc;
+}
+
+.feature-card p {
+    font-size: 0.95rem;
+    color: #94a3b8;
+    line-height: 1.5;
+}
+
+/* --- CTA SECTION --- */
+.cta-section {
+    padding: 4rem 2rem;
+    display: flex;
+    justify-content: center;
+}
+
+.cta-box {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    border: 1px solid #334155;
+    padding: 4rem;
+    border-radius: 24px;
+    text-align: center;
+    max-width: 800px;
+    width: 100%;
+    position: relative;
+    overflow: hidden;
+}
+
+.cta-box::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 5px;
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6, #3b82f6);
+}
+
+.benefits-list {
+    list-style: none;
+    padding: 0;
+    margin: 2rem 0;
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    flex-wrap: wrap;
+}
+
+.benefits-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #cbd5e1;
+}
+
+.icon-check {
+    width: 20px;
+    color: #22c55e;
+}
+
+/* --- FOOTER --- */
+.landing-footer {
+    text-align: center;
+    padding: 2rem;
+    border-top: 1px solid #1e293b;
+    color: #64748b;
+    font-size: 0.85rem;
+}
+
+.badge-anti-bot {
+    display: inline-block;
+    background: rgba(34, 197, 94, 0.1);
+    /* Verde Tech suave */
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    color: #4ade80;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* --- ANIMAÇÕES DA LANDING PAGE (O TEATRO) --- */
+
+.mockup-body-animated {
+    position: relative;
+    height: 380px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    overflow: hidden;
+}
+
+/* Estilo Base das Mensagens */
+.msg-anim {
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    width: fit-content;
+    max-width: 80%;
+    opacity: 0;
+    transform: translateY(10px);
+    animation: msgAppear 0.5s forwards;
+}
+
+.msg-client-1,
+.msg-client-2 {
+    background: #1e293b;
+    color: #e2e8f0;
+    border-bottom-left-radius: 2px;
+}
+
+.msg-seller-1,
+.msg-seller-final {
+    background: #3b82f6;
+    color: white;
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+}
+
+/* Cronologia */
+.msg-client-1 {
+    animation-delay: 0.5s;
+}
+
+.msg-seller-1 {
+    animation-delay: 2.0s;
+}
+
+.msg-client-2 {
+    animation-delay: 3.5s;
+}
+
+/* Cursor */
+.cursor-pointer {
+    position: absolute;
+    top: 120%;
+    left: 120%;
+    width: 24px;
+    z-index: 50;
+    filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.5));
+    animation: cursorRoutine 16s infinite;
+}
+
+/* Menu Contexto */
+.context-menu {
+    position: absolute;
+    top: 36%;
+    left: 15%;
+    /* Usando % para ser responsivo */
+    background: #1e293b;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    padding: 5px;
+    width: 45%;
+    /* Largura relativa */
+    max-width: 180px;
+    opacity: 0;
+    z-index: 40;
+    transform: scale(0.9);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    animation: contextMenuShow 16s infinite;
+}
+
+.menu-item {
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    color: #cbd5e1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 4px;
+}
+
+.menu-item.active {
+    background: #3b82f6;
+    color: white;
+}
+
+/* Loading IA */
+.ai-loading-indicator {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid #3b82f6;
+    padding: 8px 16px;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    opacity: 0;
+    animation: aiThinking 16s infinite;
+}
+
+.thinking-dots span {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: #3b82f6;
+    border-radius: 50%;
+    animation: bounce 1s infinite;
+}
+
+.thinking-dots span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.thinking-dots span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+.thinking-text {
+    font-size: 0.75rem;
+    color: #3b82f6;
+    font-weight: bold;
+}
+
+/* Card Sugestão */
+.ai-suggestion-card {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    left: 20px;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(15, 23, 42, 0.95));
+    border: 1px solid #3b82f6;
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    padding: 15px;
+    opacity: 0;
+    transform: translateY(20px);
+    animation: aiSuggest 16s infinite;
+}
+
+.ai-card-header {
+    color: #60a5fa;
+    font-size: 0.75rem;
+    font-weight: bold;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+}
+
+.ai-card-text {
+    color: #e2e8f0;
+    font-size: 0.85rem;
+    font-style: italic;
+    line-height: 1.4;
+    margin-bottom: 10px;
+}
+
+.btn-fake-send {
+    background: #3b82f6;
+    border: none;
+    color: white;
+    width: 100%;
+    padding: 8px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+/* Mensagem Final */
+.msg-seller-final {
+    opacity: 0;
+    animation: finalMsgShow 16s infinite;
+}
+
+/* KEYFRAMES */
+@keyframes msgAppear {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes cursorRoutine {
+
+    0%,
+    30% {
+        top: 120%;
+        left: 120%;
+        opacity: 1;
+    }
+
+    /* 1. Clica na mensagem (abre contexto) */
+    35% {
+        top: 34%;
+        left: 12%;
+        opacity: 1;
+    }
+
+    38% {
+        transform: scale(0.8);
+    }
+
+    40% {
+        transform: scale(1);
+    }
+
+    /* 2. Clica no item do menu (Consultar Cosmos) */
+    42% {
+        top: 43%;
+        left: 25%;
+    }
+
+    45% {
+        transform: scale(0.8);
+    }
+
+    47% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    48% {
+        opacity: 0;
+    }
+
+    /* 3. Clica no botão de enviar (Sugestão) */
+    70% {
+        opacity: 1;
+        top: 78%;
+        left: 65%;
+    }
+
+    75% {
+        transform: scale(0.8);
+    }
+
+    77% {
+        transform: scale(1);
+    }
+
+    80% {
+        top: 90%;
+        opacity: 0;
+    }
+
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes contextMenuShow {
+
+    0%,
+    38% {
+        opacity: 0;
+        transform: scale(0.9);
+        pointer-events: none;
+    }
+
+    39% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    46% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    47% {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes aiThinking {
+
+    0%,
+    47% {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    48% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    60% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    61% {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes aiSuggest {
+
+    0%,
+    61% {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    62% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    76% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    77% {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes finalMsgShow {
+
+    0%,
+    76% {
+        opacity: 0;
+        transform: translateY(10px);
+        display: none;
+    }
+
+    77% {
+        opacity: 1;
+        transform: translateY(0);
+        display: block;
+    }
+
+    95% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes bounce {
+
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-3px);
+    }
+}
+
+/* Ajuste para textos variáveis */
+.msg-anim {
+    /* ... (mantenha as outras propriedades) ... */
+    max-width: 85%;
+    /* Um pouco mais largo para caber textos maiores */
+}
+
+.ai-suggestion-card {
+    /* ... (mantenha as outras propriedades) ... */
+    min-height: 120px;
+    /* Altura mínima para não ficar piscando tamanho */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.ai-loading-indicator {
+    /* ... */
+    height: 50px;
+    /* Fixa altura para não pular */
+}
+
+.thinking-text {
+    text-align: left;
+    line-height: 1.2;
+}
+
+/* --- RESPONSIVIDADE (MOBILE & TABLET) --- */
+
+@media (max-width: 900px) {
+
+    /* 1. NAVBAR: Ajusta espaçamento e tamanho */
+    .landing-nav {
+        padding: 1rem;
+    }
+
+    .logo-text {
+        font-size: 1rem;
+        /* Diminui logo */
+    }
+
+    /* Esconde o botão de Login (outline) no mobile pra economizar espaço, deixa só o CTA */
+    /* Se quiser manter os dois, remova as linhas abaixo */
+    .nav-actions .btn-login-outline {
+        display: none;
+    }
+
+    /* 2. HERO SECTION: Empilha tudo (Uma coluna) */
+    .hero-section {
+        grid-template-columns: 1fr;
+        /* Vira uma coluna só */
+        text-align: center;
+        gap: 3rem;
+        margin-top: 2rem;
+        padding: 0 1.5rem;
+    }
+
+    .hero-content {
+        order: 1;
+        /* Texto em cima (ou mude para 2 se quiser a animação primeiro) */
+    }
+
+    .hero-visual {
+        order: 2;
+        width: 100%;
+        display: flex;
+        justify-content: center;
+    }
+
+    /* 3. TEXTOS: Reduz tamanhos gigantes */
+    .hero-title {
+        font-size: 2.2rem;
+        /* De 3.5rem para 2.2rem */
+    }
+
+    .hero-subtitle {
+        font-size: 1rem;
+        margin-left: auto;
+        margin-right: auto;
+        /* Centraliza o parágrafo */
+    }
+
+    /* 4. BOTÕES E STATS: Centraliza */
+    .hero-buttons {
+        justify-content: center;
+        flex-direction: column;
+        /* Botões um em cima do outro */
+        gap: 10px;
+    }
+
+    .btn-cta-large,
+    .btn-secondary-large {
+        width: 100%;
+        /* Botão largura total no celular fica melhor de clicar */
+    }
+
+    .hero-stats {
+        justify-content: center;
+        margin-top: 2rem;
+    }
+
+    /* 5. O MOCKUP (ANIMAÇÃO): Ajusta para caber na tela */
+    .glass-mockup {
+        max-width: 100%;
+        /* Garante que não estoure a largura */
+        transform: none;
+        /* Remove o efeito 3D inclinado que corta no mobile */
+        margin: 0 auto;
+    }
+
+    .glass-mockup:hover {
+        transform: none;
+        /* Remove efeito de hover 3D no touch */
+    }
+
+    .mockup-body-animated {
+        height: 400px;
+        /* Aumenta um pouco a altura pra caber tudo verticalmente */
+        padding: 15px;
+    }
+
+    /* Ajusta tamanho das mensagens na animação */
+    .msg-anim {
+        font-size: 0.8rem;
+        max-width: 90%;
+    }
+
+    /* Ajusta o card de sugestão da IA */
+    .ai-suggestion-card {
+        left: 10px;
+        right: 10px;
+        padding: 10px;
+    }
+
+    .ai-card-text {
+        font-size: 0.75rem;
+        /* Texto menor na sugestão */
+    }
+
+    /* 6. FEATURES E CTA */
+    .features-section {
+        margin: 3rem auto;
+        padding: 0 1.5rem;
+    }
+
+    .section-title {
+        font-size: 1.8rem;
+    }
+
+    .cta-box {
+        padding: 2rem;
+    }
+
+    .cta-box h2 {
+        font-size: 1.5rem;
+    }
+
+    .benefits-list {
+        flex-direction: column;
+        /* Lista de benefícios um embaixo do outro */
+        gap: 10px;
+        align-items: center;
+    }
+}

@@ -138,19 +138,21 @@ function CopilotPanel() {
             {suggestions.immediate_answer && (
               <div className="glass-card main-card">
                 <div className="card-header">
-                  <h4>Sugestão</h4>
+                  <h4>{queryType === 'internal' ? 'Informação' : 'Sugestão'}</h4>
                 </div>
                 <div className="card-content">
                   {suggestions.immediate_answer}
                 </div>
 
-                {/* 3. BOTÃO ALTERADO: Usar Sugestão */}
-                <button
-                  className="action-btn primary-glass-btn"
-                  onClick={() => handleUseSuggestion(suggestions.immediate_answer)}
-                >
-                  <ReplyIcon /> Usar Sugestão
-                </button>
+                {/* 3. BOTÃO ALTERADO: Usar Sugestão (Apenas se NÃO for interno) */}
+                {queryType !== 'internal' && (
+                  <button
+                    className="action-btn primary-glass-btn"
+                    onClick={() => handleUseSuggestion(suggestions.immediate_answer)}
+                  >
+                    <ReplyIcon /> Usar Sugestão
+                  </button>
+                )}
               </div>
             )}
 
@@ -159,8 +161,8 @@ function CopilotPanel() {
               <VideoSuggestionCard video={suggestions.video} />
             )}
 
-            {/* Próximos Passos */}
-            {suggestions.follow_up_options?.map((option, index) => (
+            {/* Próximos Passos (Apenas se NÃO for interno) */}
+            {queryType !== 'internal' && suggestions.follow_up_options?.map((option, index) => (
               <div key={index} className="glass-card secondary-card">
                 <h4>🎯 Próximo Passo</h4>
                 <p>{option.text}</p>

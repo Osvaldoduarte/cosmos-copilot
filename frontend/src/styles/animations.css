@@ -1,0 +1,30 @@
+@keyframes fadeInScale {
+  0% { opacity: 0; transform: scale(0.95); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes fadeInMoveUp {
+  0% { opacity: 0; transform: translate(-50%, -30px); }
+  100% { opacity: 1; transform: translate(-50%, -45px); }
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.spinner-dot {
+  display: inline-block; width: 12px; height: 12px;
+  border: 2px solid rgba(255,255,255,0.3); border-top-color: white;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+
+/* Linhas de fundo animadas (Login/Connect) */
+.animated-background-lines {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; z-index: 1; pointer-events: none;
+}
+.line {
+  position: absolute; bottom: -100%; width: 2px; background: rgba(255, 255, 255, 0.1);
+  animation: rise 15s infinite linear;
+}
+.line:nth-child(1) { left: 20%; animation-duration: 10s; animation-delay: 0s; }
+.line:nth-child(2) { left: 50%; animation-duration: 15s; animation-delay: 2s; }
+.line:nth-child(3) { left: 80%; animation-duration: 12s; animation-delay: 4s; }
+@keyframes rise { 0% { bottom: -10%; opacity: 0; } 50% { opacity: 1; } 100% { bottom: 110%; opacity: 0; } }

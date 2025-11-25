@@ -32,164 +32,154 @@ DATA_DIR_PATH = BACKEND_DIR_PATH / "data"
 CHROMA_HOST = os.environ.get("CHROMA_HOST")
 COLLECTION_NAME = "evolution"
 
+
 def _clean_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
     """
-    DOCSTRING (Google Style): Limpa um dicionário de metadados,
-    removendo valores que não são escalares (listas, dicts aninhados)
-    que o ChromaDB rejeita.
-
-    Args:
-        metadata: Dicionário de metadados potencialmente complexos.
-
-    Returns:
-        Dicionário de metadados limpos, contendo apenas valores compatíveis com o ChromaDB.
+    DOCSTRING (Google Style): Limpa um dicionário de metadados para compatibilidade com ChromaDB.
+    Converte listas em strings separadas por vírgula.
     """
-    cleaned_metadata = {}
+    if not metadata:
+        return {}
+
+    clean_meta = {}
     for key, value in metadata.items():
-        # ChromaDB só aceita str, int, float, bool, ou None.
-        if isinstance(value, (str, int, float, bool)) or value is None:
-            cleaned_metadata[key] = value
-        # Qualquer outro tipo (list, dict, object) é ignorado.
-    return cleaned_metadata
+        if isinstance(value, list):
+            # A MÁGICA ACONTECE AQUI: Converte ['tag1', 'tag2'] em "tag1, tag2"
+            clean_meta[key] = ", ".join([str(v) for v in value])
+        elif value is None:
+            clean_meta[key] = ""
+        else:
+            clean_meta[key] = value
 
-# --- FUNÇÃO DE LEITURA DOS JSONL ---
-def load_data_from_jsonl() -> List[Document]:
-    print("\nINFO: Processando arquivos de dados refinados (refinado_*.jsonl)...")
-    all_chunks = []
-    refined_files = list(DATA_DIR_PATH.glob("refinado_*.jsonl"))
+    return clean_meta
 
-    if not refined_files:
-        print("    -> Nenhum arquivo .jsonl refinado encontrado em /data.")
-        return []
 
-    for file_path in refined_files:
-        with file_path.open('r', encoding='utf-8') as f:
-            lines = f.readlines()
+def load_documents_from_jsonl() -> List[Document]:
+    """Lê todos os arquivos refinado_*.jsonl da pasta data/"""
+    documents = []
+    # Busca arquivos usando pathlib
+    files = list(DATA_DIR_PATH.glob("refinado_*.jsonl"))
 
-        if not lines:
-            print(f"AVISO: Arquivo refinado {file_path.name} está vazio.")
-            continue
+    print(f"📂 Buscando arquivos em: {DATA_DIR_PATH}")
+    print(f"📄 Arquivos encontrados: {len(files)}")
 
-        # Tenta ler o primeiro registro como cabeçalho (metadados simples)
+    for file_path in files:
         try:
-            first_line = json.loads(lines[0])
-        except json.JSONDecodeError:
-            first_line = {}
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line_number, line in enumerate(f):
+                    line = line.strip()
+                    if not line: continue
 
-        # Percorre o restante das linhas (pode ser formato antigo ou novo)
-        for line in lines[1:]:
-            try:
-                data = json.loads(line)
+                    try:
+                        data = json.loads(line)
 
-                # --- Novo formato (chunks com content/metadata) ---
-                if "content" in data:
-                    combined_content = data["content"]
-                    metadata = data.get("metadata", {})
-                    metadata.update({
-                        "source": data.get("source_document_id", file_path.name),
-                        "titulo": data.get("title", "")
-                    })
-                    all_chunks.append(Document(page_content=combined_content, metadata=metadata))
-                    continue
+                        # Pega o conteúdo e os metadados brutos
+                        content = data.get("content", "")
+                        raw_metadata = data.get("metadata", {})
 
-                # --- Formato antigo (pergunta/resposta) ---
-                question = data.get("pergunta")
-                answer = data.get("resposta")
-                if not question or not answer:
-                    continue
+                        # IMPORTANTE: Limpa os metadados antes de criar o Documento
+                        clean_metadata = _clean_metadata(raw_metadata)
 
-                combined_content = f"Pergunta: {question}\nResposta: {answer}"
-                metadata = {
-                    'source': first_line.get("source_file", file_path.name),
-                    'type': first_line.get("source_type", "desconhecido"),
-                    **({'url_video': first_line.get("video_url")} if first_line.get("video_url") else {})
-                }
-                all_chunks.append(Document(page_content=combined_content, metadata=metadata))
-
-            except json.JSONDecodeError:
-                print(f"AVISO: Linha JSON mal formatada em {file_path.name} ignorada: {line[:50]}...")
-
-    print(f"    -> {len(all_chunks)} chunks totais extraídos de {len(refined_files)} arquivos .jsonl.")
-    return all_chunks
-
-
-# --- FUNÇÃO PRINCIPAL ---
-def create_database():
-    # Atualizei a versão para rastreamento
-    print("\n--- [FINAL] CRIANDO O BANCO DE DADOS VETORIAL (v1.2.7 - Limpeza de Tipo e Metadados Manual) ---")
-
-    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        print("❌ ERRO: GEMINI_API_KEY não configurada.")
-        return
-
-    all_chunks = load_data_from_jsonl()
-
-    if not all_chunks:
-        print("\nAVISO: Nenhum chunk de dados (.jsonl) encontrado para processar.")
-        return
-
-    # ✅ REFATORAÇÃO DE FILTRAGEM: O coração da correção.
-    filtered_chunks = []
-    total_chunks = len(all_chunks)
-
-    for i, chunk in enumerate(all_chunks):
-        # 1. Checagem de Tipo (Programação Defensiva)
-        if not isinstance(chunk, Document):
-            # Esta linha captura as strings que escapam da validação, prevenindo o AttributeError.
-            print(f"⚠️ AVISO: Chunk {i + 1}/{total_chunks} é do tipo inesperado ({type(chunk).__name__}). Pulando.")
-            continue
-
-        # 2. Limpeza Manual de Metadados (Resolve o ValueError do ChromaDB)
-        try:
-            chunk.metadata = _clean_metadata(chunk.metadata)
-            filtered_chunks.append(chunk)
+                        doc = Document(
+                            page_content=content,
+                            metadata=clean_metadata
+                        )
+                        documents.append(doc)
+                    except json.JSONDecodeError:
+                        print(f"⚠️ Erro de JSON na linha {line_number} do arquivo {file_path.name}")
         except Exception as e:
-            # Caso ocorra algum erro inesperado na limpeza do dict de metadados.
-            print(f"❌ ERRO Inesperado ao limpar metadados do Chunk {i + 1}/{total_chunks}: {e}. Pulando.")
+            print(f"❌ Erro ao ler arquivo {file_path.name}: {e}")
 
-    all_chunks = filtered_chunks  # Renomeia a lista limpa
+    print(f"📚 Total de trechos (chunks) carregados: {len(documents)}")
+    return documents
 
-    print(f"\nINFO: Total de {len(all_chunks)} chunks para serem adicionados ao DB.")
-    embeddings_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
 
+def create_database():
+    """Função Principal: Recria o Banco de Dados"""
+
+    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print("❌ ERRO: GOOGLE_API_KEY não encontrada no .env")
+        return
+
+    print("🧠 Inicializando modelo de Embeddings (models/embedding-001)...")
+    embeddings_model = GoogleGenerativeAIEmbeddings(
+        model="models/embedding-001",
+        google_api_key=api_key
+    )
+
+    docs = load_documents_from_jsonl()
+    if not docs:
+        print("❌ Nenhum documento encontrado. Verifique a pasta 'data/'.")
+        return
+
+    # --- Lógica de Seleção de Banco (Remoto vs Local) ---
     if CHROMA_HOST:
-        print(f"INFO: Conectando ao ChromaDB REMOTO em: {CHROMA_HOST}")
+        print(f"🌐 Conectando ao ChromaDB Remoto em: {CHROMA_HOST}...")
         try:
-            url_to_parse = CHROMA_HOST
-            if not url_to_parse.startswith(('http://', 'https://')):
-                url_to_parse = 'https://' + url_to_parse
+            # Lógica robusta de parsing de URL
+            from urllib.parse import urlparse
 
-            parsed_url = urlparse(url_to_parse)
-            host = parsed_url.netloc.split(':')[0] if parsed_url.netloc else parsed_url.path.split(':')[0]
-            ssl_enabled = parsed_url.scheme == 'https'
-            port = parsed_url.port or (443 if ssl_enabled else 80)
+            url_str = CHROMA_HOST
+            if not url_str.startswith(('http://', 'https://')):
+                url_str = f"http://{url_str}"  # Assume http por padrão se não informado
+
+            parsed = urlparse(url_str)
+            host = parsed.hostname
+            port = parsed.port or 8000
+            ssl_enabled = parsed.scheme == 'https'
+
+            if not host:  # Fallback
+                host = CHROMA_HOST.split(":")[0]
+
+            print(f"   -> Host: {host}, Port: {port}, SSL: {ssl_enabled}")
 
             client = chromadb.HttpClient(host=host, port=port, ssl=ssl_enabled)
-            client.heartbeat()
 
+            # Tenta limpar a coleção antiga
             try:
-                client.delete_collection(name=COLLECTION_NAME)
-            except Exception:
-                print(f"INFO: Coleção '{COLLECTION_NAME}' não existia. Criando uma nova.")
+                client.delete_collection(COLLECTION_NAME)
+                print(f"🗑️ Coleção remota '{COLLECTION_NAME}' apagada.")
+            except:
+                pass
 
-            db = Chroma.from_documents(all_chunks, embeddings_model, collection_name=COLLECTION_NAME, client=client)
-            count = db._collection.count()
-            print(f"✅ DB Vetorial REMOTO '{COLLECTION_NAME}' criado/atualizado com {count} chunks.")
+            # Inserção em Lote (Batch) para performance
+            print("🚀 Inserindo documentos no banco remoto...")
+            Chroma.from_documents(
+                client=client,
+                documents=docs,
+                embedding=embeddings_model,
+                collection_name=COLLECTION_NAME
+            )
+            print("✅ Banco Remoto populado com sucesso!")
 
         except Exception as e:
-            print(f"❌ ERRO ao conectar ou popular o DB remoto: {e}")
+            print(f"❌ Erro ao conectar no Chroma Remoto: {e}")
             traceback.print_exc()
-    else:
-        if os.path.exists(CHROMA_PATH_LOCAL):
-            print(f"INFO: Apagando banco de dados LOCAL antigo em '{CHROMA_PATH_LOCAL}'...")
-            shutil.rmtree(CHROMA_PATH_LOCAL)
-        print(f"INFO: Criando novo DB vetorial LOCAL em: {CHROMA_PATH_LOCAL}...")
 
-        db = Chroma.from_documents(all_chunks, embeddings_model, persist_directory=CHROMA_PATH_LOCAL, collection_name=COLLECTION_NAME)
-        db.persist()
-        count = db._collection.count()
-        print(f"✅ DB Vetorial LOCAL '{COLLECTION_NAME}' criado com {count} chunks.")
+    else:
+        # --- MODO LOCAL ---
+        print(f"🏠 Configurando ChromaDB Local em: {CHROMA_PATH_LOCAL}")
+
+        if os.path.exists(CHROMA_PATH_LOCAL):
+            print("🧹 Removendo banco de dados antigo...")
+            shutil.rmtree(CHROMA_PATH_LOCAL)
+
+        print("🚀 Inserindo documentos e gerando vetores (isso pode demorar um pouco)...")
+        try:
+            vector_db = Chroma.from_documents(
+                documents=docs,
+                embedding=embeddings_model,
+                persist_directory=CHROMA_PATH_LOCAL,
+                collection_name=COLLECTION_NAME
+            )
+            # Nas versões recentes do Langchain/Chroma, o persist é automático,
+            # mas manter a chamada não faz mal.
+            vector_db.persist()
+            print("✅ Banco de Dados Local recriado com sucesso!")
+        except Exception as e:
+            print(f"❌ Erro ao criar banco local: {e}")
+            traceback.print_exc()
 
 
 if __name__ == "__main__":

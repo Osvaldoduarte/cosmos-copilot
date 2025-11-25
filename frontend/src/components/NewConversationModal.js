@@ -1,125 +1,88 @@
-import React, { useState, useEffect } from 'react';
-import { DEFAULT_AVATAR_URL } from '../utils/formatDisplay';
+import React, { useState } from 'react';
+import { useChat } from '../context/ChatContext';
+import { useToast } from '../context/ToastContext';
+import '../styles/management.css'; // Reutiliza o CSS bonito do manager
 
-function NewConversationModal({ isOpen, onClose, onStartConversation, isLoading }) {
+const NewConversationModal = ({ onClose }) => {
+  const { handleStartConversation } = useChat();
+  const notify = useToast();
   const [number, setNumber] = useState('');
   const [message, setMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  // --- AS LINHAS QUE FALTAVAM ESTÃO AQUI ---
-  const [contactPreview, setContactPreview] = useState(null);
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState('');
-  // -----------------------------------------
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
 
-  // Efeito para buscar os dados do contato enquanto o usuário digita
-  useEffect(() => {
-    // Limpa o preview se o campo de número estiver vazio
-    if (!number) {
-      setContactPreview(null);
-      setPreviewError('');
+    // Limpeza básica do número (remove caracteres não numéricos)
+    const cleanNumber = number.replace(/\D/g, '');
+
+    if (cleanNumber.length < 10) {
+      notify.warning("Número inválido. Use o formato DDD + Número (ex: 11999999999)");
+      setIsLoading(false);
       return;
     }
 
-    // Formata o número para remover caracteres não numéricos
-    const cleanedNumber = number.replace(/\D/g, '');
+    const success = await handleStartConversation(cleanNumber, message);
+    setIsLoading(false);
 
-    // Só busca se o número tiver um tamanho razoável (evita buscas desnecessárias)
-    if (cleanedNumber.length >= 11 && cleanedNumber.length <= 13) {
-      const timer = setTimeout(() => {
-        fetchContactInfo(cleanedNumber);
-      }, 800); // Espera 800ms após o usuário parar de digitar para fazer a busca
-
-      // Limpa o timer se o usuário voltar a digitar (otimização)
-      return () => clearTimeout(timer);
-    }
-  }, [number]); // Este efeito roda toda vez que a variável 'number' muda
-
-  // Função que chama o backend para buscar os dados do contato
-  const fetchContactInfo = async (num) => {
-    setIsPreviewLoading(true);
-    setPreviewError('');
-    setContactPreview(null);
-    try {
-      const response = await fetch(`http://127.0.0.1:8000/contacts/info/${num}`);
-      if (!response.ok) {
-        throw new Error('Contato não encontrado no WhatsApp.');
-      }
-      const data = await response.json();
-      setContactPreview(data);
-    } catch (err) {
-      setPreviewError(err.message);
-    } finally {
-      setIsPreviewLoading(false);
-    }
-  };
-
-  // Função para lidar com o envio do formulário (iniciar a conversa)
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    // Lógica de formatação automática do número (já implementada)
-    const cleanedNumber = number.replace(/\D/g, '');
-    let finalNumber;
-    if (cleanedNumber.length === 13) {
-      finalNumber = cleanedNumber;
-    } else if (cleanedNumber.length === 11) {
-      finalNumber = '55' + cleanedNumber;
-    } else if (cleanedNumber.length === 9) {
-      finalNumber = '5541' + cleanedNumber;
+    if (success) {
+      onClose(); // Fecha o modal se deu certo
     } else {
-      finalNumber = cleanedNumber.startsWith('55') ? cleanedNumber : '55' + cleanedNumber;
+      notify.error("Erro ao iniciar conversa. Verifique o número.");
     }
-    onStartConversation(finalNumber, message);
   };
 
-  if (!isOpen) {
-    return null;
-  }
-
-  // Renderização do Modal
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <h2>Iniciar Nova Conversa</h2>
-        <p>Digite o número do WhatsApp e a primeira mensagem.</p>
-        <form onSubmit={handleSubmit}>
-          <input
-            type="text"
-            value={number}
-            onChange={(e) => setNumber(e.target.value)}
-            placeholder="Ex: 41999998888"
-            required
-            disabled={isLoading}
-          />
 
-          {/* Bloco para mostrar o preview do contato */}
-          {isPreviewLoading && <div className="preview-info">Buscando contato...</div>}
-          {previewError && <div className="preview-info error">{previewError}</div>}
-          {contactPreview && (
-            <div className="contact-preview">
-<img src={contactPreview.avatar_url || DEFAULT_AVATAR_URL} alt="Avatar" />              <span>{contactPreview.name}</span>
-            </div>
-          )}
+        {/* Cabeçalho */}
+        <div className="modal-header">
+          <h3>Nova Conversa</h3>
+          <button onClick={onClose} className="close-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
 
-          <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="Sua primeira mensagem..."
-            rows="4"
-            required
-            disabled={isLoading}
-          ></textarea>
+        {/* Formulário */}
+        <form onSubmit={handleSubmit} className="modal-form">
+          <div className="form-group">
+            <label>Número do WhatsApp (com DDD)</label>
+            <input
+              type="text"
+              placeholder="Ex: 11999998888"
+              value={number}
+              onChange={(e) => setNumber(e.target.value)}
+              required
+              autoFocus
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Mensagem Inicial</label>
+            <input
+              type="text"
+              placeholder="Ex: Olá, gostaria de falar sobre..."
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              required
+            />
+          </div>
+
           <div className="modal-actions">
-            <button type="button" className="btn-secondary" onClick={onClose} disabled={isLoading}>
+            <button type="button" onClick={onClose} className="btn btn-secondary">
               Cancelar
             </button>
-            <button type="submit" className="btn-primary" disabled={isLoading || !number || !message}>
-              {isLoading ? 'Enviando...' : 'Iniciar Conversa'}
+            <button type="submit" disabled={isLoading} className="btn btn-primary">
+              {isLoading ? 'Iniciando...' : 'Iniciar Conversa'}
             </button>
           </div>
         </form>
+
       </div>
     </div>
   );
-}
+};
 
 export default NewConversationModal;

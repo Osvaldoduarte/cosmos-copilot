@@ -17,33 +17,67 @@ export function AuthProvider({ children }) {
   const [instanceConnected, setInstanceConnected] = useState(false);
   const [isLoginLoading, setIsLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
-  const [isStatusLoading, setIsStatusLoading] = useState(true);
+  const [isStatusLoading, setIsStatusLoading] = useState(true); // Começa carregando
 
   const isAuthenticated = !!token;
 
-  useEffect(() => {
-    const checkInstanceStatus = async () => {
-      if (token) {
-        setIsStatusLoading(true);
-        try {
+  // Função para buscar dados do usuário
+  const fetchUser = useCallback(async () => {
+    if (!token) return;
+    try {
+        const { data } = await api.get('/users/me');
+        setUser(data);
+
+        // Se for cliente e tiver instância, checa o status
+        if (data.tenant?.type !== 'ADMIN' && data.tenant?.instance_name) {
+             await checkInstanceStatus(data.tenant.instance_name);
+        } else {
+             // Admin ou sem instância não precisa de conexão "open"
+             setInstanceConnected(false);
+        }
+    } catch (error) {
+        console.error("Erro ao buscar usuário:", error);
+        if (error.response?.status === 401) handleLogout();
+    } finally {
+        setIsStatusLoading(false);
+    }
+  }, [token]);
+
+  // Verifica status da instância (Blindado)
+  const checkInstanceStatus = async (instanceName) => {
+      if (!instanceName) return;
+      try {
           const { data } = await api.get('/evolution/instance/status');
-          if (data.instance && data.instance.state === 'open') {
+
+          // Suporta diferentes formatos de retorno da Evolution
+          const state = data.instance?.state || data.state;
+
+          // ACEITA 'open' OU 'connecting' para não chutar o usuário durante reconexões
+          if (state === 'open' || state === 'connecting') {
             setInstanceConnected(true);
           } else {
+            console.warn("Instância desconectada. Estado:", state);
             setInstanceConnected(false);
           }
-        } catch (err) {
-          console.error("Erro ao verificar status, desconectando:", err);
-          handleLogout();
-        } finally {
-          setIsStatusLoading(false);
-        }
+      } catch (err) {
+          console.error("Erro ao verificar status (mantendo estado anterior):", err);
+          // Não desconecta em caso de erro de rede temporário, assume que está ok se já estava
+          // Isso evita o "pisca" de tela
+      }
+  };
+
+  // Inicialização
+  useEffect(() => {
+    const initAuth = async () => {
+      setIsStatusLoading(true);
+      if (token) {
+        await fetchUser();
       } else {
         setIsStatusLoading(false);
       }
     };
-    checkInstanceStatus();
-  }, [token]);
+    initAuth();
+  }, [token, fetchUser]);
 
   const handleLogin = useCallback(async (username, password) => {
     setIsLoginLoading(true);
@@ -77,21 +111,22 @@ export function AuthProvider({ children }) {
      setInstanceConnected(false);
   }, []);
 
+  // Força o estado para True manualmente (usado pelo botão "Voltar ao Chat")
   const handleConnectSuccess = useCallback(() => {
     setInstanceConnected(true);
+    // Opcional: refazer o fetchUser para garantir
   }, []);
 
-  // ✨ CERTIFIQUE-SE QUE handleConnectSuccess ESTÁ AQUI
   const value = {
     token,
     user,
     isAuthenticated,
     instanceConnected,
-    isLoading: isLoginLoading || isStatusLoading,
+    isLoading: isLoginLoading || isStatusLoading, // Combina os loadings
     loginError,
     handleLogin,
     handleLogout,
-    handleConnectSuccess, // <--- AQUI
+    handleConnectSuccess,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

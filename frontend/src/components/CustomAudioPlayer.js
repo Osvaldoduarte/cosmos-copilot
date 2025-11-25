@@ -2,17 +2,17 @@ import React, { useState, useRef, useEffect } from 'react';
 
 const PlayIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M8 5v14l11-7z"/>
+    <path d="M8 5v14l11-7z" />
   </svg>
 );
 
 const PauseIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
   </svg>
 );
 
-const CustomAudioPlayer = ({ src }) => {
+const CustomAudioPlayer = ({ src, avatar }) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -64,13 +64,12 @@ const CustomAudioPlayer = ({ src }) => {
     const audio = audioRef.current;
     if (!audio) return;
     if (audio.duration === Infinity) {
-        setDuration("");
+      setDuration("");
     } else {
-        setDuration(formatTime(audio.duration));
+      setDuration(formatTime(audio.duration));
     }
   };
 
-  // 💡 A FUNÇÃO QUE FALTAVA
   const handleEnded = () => {
     setIsPlaying(false);
     setProgress(0);
@@ -84,7 +83,7 @@ const CustomAudioPlayer = ({ src }) => {
 
   const handleSeek = (e) => {
     const audio = audioRef.current;
-    if(!audio || !audio.duration) return;
+    if (!audio || !audio.duration) return;
 
     const width = e.currentTarget.clientWidth;
     const clickX = e.nativeEvent.offsetX;
@@ -102,7 +101,7 @@ const CustomAudioPlayer = ({ src }) => {
 
   if (error) {
     return (
-      <div style={{color: '#f85149', fontSize: '0.8rem', padding: '10px', display: 'flex', alignItems: 'center', gap: '5px'}}>
+      <div style={{ color: '#f85149', fontSize: '0.8rem', padding: '10px', display: 'flex', alignItems: 'center', gap: '5px' }}>
         ⚠️ Áudio indisponível
       </div>
     );
@@ -114,7 +113,7 @@ const CustomAudioPlayer = ({ src }) => {
         ref={audioRef}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
-        onEnded={handleEnded} // Agora a função existe!
+        onEnded={handleEnded}
         onError={handleError}
         preload="metadata"
       >
@@ -123,6 +122,14 @@ const CustomAudioPlayer = ({ src }) => {
         <source src={src} type="audio/mp4" />
         <source src={src} />
       </audio>
+
+      {/* Avatar com ícone de mic (Estilo WhatsApp) */}
+      <div className="audio-avatar-container">
+        <img src={avatar || "https://cdn-icons-png.flaticon.com/512/149/149071.png"} alt="Avatar" className="audio-avatar" />
+        <div className="audio-mic-badge">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" /><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" /></svg>
+        </div>
+      </div>
 
       <button className="audio-control-btn" onClick={togglePlay}>
         {isPlaying ? <PauseIcon /> : <PlayIcon />}
@@ -141,6 +148,7 @@ const CustomAudioPlayer = ({ src }) => {
         </div>
       </div>
 
+      {/* Botão de velocidade (Opcional, pode ficar escondido ou no final) */}
       <button className="speed-btn" onClick={toggleSpeed}>
         {playbackRate}x
       </button>

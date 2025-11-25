@@ -156,6 +156,7 @@ zstandard==0.25.0
 rank_bm25
 thefuzz
 python-Levenshtein
-
 bcrypt==4.1.2
 passlib==1.7.4
+psycopg2-binary
+redis

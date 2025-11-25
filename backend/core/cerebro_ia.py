@@ -101,11 +101,40 @@ class SalesCopilot:
 
         # 3. Chama o LLM
         try:
-            resp = self.chain.invoke({
-                "history_context": history_text,
-                "tech_context": tech_text,
-                "query": query
-            })
+            if is_private_query:
+                # Prompt Específico para Consultas Internas
+                internal_prompt = ChatPromptTemplate.from_template("""
+                Você é o VENAI, um assistente sênior de vendas.
+                
+                CONTEXTO TÉCNICO (RAG):
+                {tech_context}
+                
+                PERGUNTA DO VENDEDOR:
+                "{query}"
+                
+                OBJETIVO: Responder a dúvida do vendedor de forma direta, técnica e informativa.
+                NÃO sugira uma resposta para o cliente.
+                NÃO sugira próximos passos.
+                Apenas responda a pergunta.
+                
+                Responda ESTRITAMENTE neste formato JSON:
+                {{
+                    "sugestao_resposta": "Sua resposta informativa para o vendedor...",
+                    "proximo_passo": null
+                }}
+                """)
+                chain = internal_prompt | self.llm.with_structured_output(AIResponse)
+                resp = chain.invoke({
+                    "tech_context": tech_text,
+                    "query": query
+                })
+            else:
+                # Prompt Padrão (Sugestão de Resposta)
+                resp = self.chain.invoke({
+                    "history_context": history_text,
+                    "tech_context": tech_text,
+                    "query": query
+                })
 
             return {
                 "status": "success",
@@ -123,37 +152,67 @@ class SalesCopilot:
 
 # --- FACTORY ---
 def initialize_chroma_client():
-    url = os.getenv("CHROMA_SERVER_URL")
-    if not url: return None
+    """
+    Inicializa cliente Chroma LOCAL (PersistentClient).
+    Não usa mais servidor HTTP remoto.
+    """
     try:
-        if not url.startswith(('http://', 'https://')): url = 'https://' + url
-        parsed = urlparse(url)
-        is_ssl = parsed.scheme == 'https'
-        port = parsed.port or (443 if is_ssl else 8000)
-
-        return chromadb.HttpClient(
-            host=parsed.hostname,
-            port=port,
-            ssl=is_ssl,
+        # Define o diretório de persistência
+        persist_dir = str(DATA_DIR / "chroma_db")
+        print_info(f"🔗 [IA] Inicializando Chroma LOCAL em: {persist_dir}")
+        
+        client = chromadb.PersistentClient(
+            path=persist_dir,
             settings=Settings(anonymized_telemetry=False)
         )
-    except:
+        
+        # Testa listando collections
+        collections = client.list_collections()
+        print_success(f"✅ [IA] Chroma LOCAL inicializado! Collections: {[c.name for c in collections]}")
+        return client
+    except Exception as e:
+        print_error(f"❌ [IA] Erro ao inicializar Chroma LOCAL: {e}")
+        traceback.print_exc()
         return None
 
 
 def load_models(client):
-    if not client: return None, None, None, None
+    if not client:
+        print_warning("⚠️ [IA] Cliente Chroma não disponível, pulando carregamento de modelos")
+        return None, None, None, None
+    
     api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print_error("❌ [IA] GEMINI_API_KEY não configurada no .env")
+        return None, None, None, None
 
-    llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL_NAME, google_api_key=api_key, temperature=0.2)
-    embed = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
+    try:
+        print_info("🤖 [IA] Inicializando LLM Gemini...")
+        llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL_NAME, google_api_key=api_key, temperature=0.2)
+        print_success(f"✅ [IA] LLM {GEMINI_MODEL_NAME} carregado")
+    except Exception as e:
+        print_error(f"❌ [IA] Erro ao carregar LLM: {e}")
+        return None, None, None, None
+
+    try:
+        print_info("📝 [IA] Inicializando Embeddings...")
+        embed = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
+        print_success("✅ [IA] Embeddings carregados")
+    except Exception as e:
+        print_error(f"❌ [IA] Erro ao carregar Embeddings: {e}")
+        return llm, None, None, None
 
     retriever = None
     try:
+        print_info("🔍 [IA] Configurando Retriever...")
         db = Chroma(client=client, collection_name="evolution", embedding_function=embed)
         try:
             # Verifica se tem dados
-            if db._collection.count() == 0:
+            count = db._collection.count()
+            print_info(f"📊 [IA] Collection 'evolution' tem {count} documentos")
+            
+            if count == 0:
+                print_warning("⚠️ [IA] Collection vazia, usando BM25 com documento placeholder")
                 retriever = BM25Retriever.from_documents([Document(page_content="vazio")])
             else:
                 # Retriever Híbrido (BM25 + Vetor)
@@ -164,9 +223,12 @@ def load_models(client):
                 bm25.k = 3
                 chroma_retriever = db.as_retriever(search_kwargs={"k": 3})
                 retriever = EnsembleRetriever(retrievers=[bm25, chroma_retriever], weights=[0.4, 0.6])
-        except:
+                print_success("✅ [IA] Retriever Híbrido (BM25 + Vetor) configurado")
+        except Exception as e:
+            print_warning(f"⚠️ [IA] Erro ao criar retriever híbrido, usando fallback: {e}")
             retriever = db.as_retriever()
-    except:
+    except Exception as e:
+        print_error(f"❌ [IA] Erro ao configurar Retriever: {e}")
         retriever = None
 
     return llm, retriever, embed, {}

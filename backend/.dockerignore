@@ -1,0 +1,50 @@
+# Ignore Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test files
+test_*.py
+*_test.py
+tests/
+
+# Development scripts
+check_webhook.py
+configure_ngrok_webhook.py
+monitor_websocket.py
+setup_webhook.py
+start_webhook.sh
+test_integration.py
+test_webhook.py
+WEBHOOK_FIX.md
+
+# Database (if any)
+*.db
+*.sqlite
+*.sqlite3
+
+# Chroma data (se você não quiser fazer upload)
+# chroma_data/

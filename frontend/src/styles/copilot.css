@@ -1,0 +1,197 @@
+/* ===================================================================
+   COPILOT PANEL - ESTILO CÉREBRO
+   =================================================================== */
+
+.copilot-panel {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, #0f172a 0%, #020617 100%);
+    color: #f8fafc;
+    font-family: 'Inter', sans-serif;
+}
+
+/* --- HEADER --- */
+.copilot-header {
+    padding: 15px;
+    background: rgba(15, 23, 42, 0.8);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.header-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.glass-input {
+    flex: 1;
+    display: flex;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 4px 10px;
+    transition: all 0.3s;
+}
+.glass-input:focus-within {
+    border-color: #8b5cf6;
+    background: rgba(139, 92, 246, 0.1);
+}
+
+.ai-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: white;
+    outline: none;
+    font-size: 0.85rem;
+    padding: 5px;
+}
+
+.ai-send-btn {
+    background: transparent;
+    border: none;
+    color: #8b5cf6;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+}
+.ai-send-btn:hover { color: #a78bfa; }
+
+.close-btn {
+    background: transparent;
+    border: none;
+    color: #64748b;
+    cursor: pointer;
+}
+.close-btn:hover { color: #ef4444; }
+
+/* --- BODY --- */
+.copilot-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    position: relative;
+}
+
+/* Loading Animation */
+.copilot-loading {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.9rem;
+    gap: 20px;
+}
+
+.ai-orb {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #8b5cf6 0%, transparent 70%);
+    box-shadow: 0 0 30px #8b5cf6;
+    animation: pulseOrb 2s infinite ease-in-out;
+}
+
+@keyframes pulseOrb {
+    0% { transform: scale(0.8); opacity: 0.6; }
+    50% { transform: scale(1.2); opacity: 1; }
+    100% { transform: scale(0.8); opacity: 0.6; }
+}
+
+/* Cards de Sugestão */
+.suggestion-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    animation: slideUp 0.4s ease-out;
+}
+
+@keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+.context-badge {
+    align-self: flex-start;
+    background: rgba(139, 92, 246, 0.2);
+    color: #d8b4fe;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+}
+
+.context-text {
+    font-size: 0.85rem;
+    color: #94a3b8;
+    font-style: italic;
+    margin-bottom: 10px;
+    border-left: 2px solid #475569;
+    padding-left: 10px;
+}
+
+.glass-card {
+    background: rgba(30, 41, 59, 0.6);
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    border-radius: 12px;
+    padding: 15px;
+    backdrop-filter: blur(5px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+}
+
+.main-card {
+    border-color: #8b5cf6;
+    background: linear-gradient(145deg, rgba(30,41,59,0.8) 0%, rgba(15,23,42,0.9) 100%);
+}
+
+.card-header h4 { margin: 0 0 10px 0; color: #c084fc; font-size: 0.9rem; }
+.card-content { font-size: 0.95rem; line-height: 1.5; color: #e2e8f0; white-space: pre-wrap; }
+
+.secondary-card {
+    border-color: rgba(255,255,255,0.1);
+}
+.secondary-card h4 { margin: 0 0 5px 0; color: #94a3b8; font-size: 0.8rem; text-transform: uppercase; }
+.secondary-card p { font-size: 0.9rem; color: #cbd5e1; margin: 0; }
+
+/* Botão de Ação (Usar Sugestão) */
+.primary-glass-btn {
+    margin-top: 15px;
+    width: 100%;
+    background: linear-gradient(90deg, #7c3aed, #db2777);
+    border: none;
+    padding: 10px;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: 0.2s;
+    box-shadow: 0 0 15px rgba(124, 58, 237, 0.3);
+}
+.primary-glass-btn:hover { filter: brightness(1.1); transform: translateY(-2px); }
+
+/* --- FOOTER --- */
+.copilot-footer {
+    padding: 15px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    text-align: center;
+}
+
+.clear-btn {
+    background: none;
+    border: 1px solid #475569;
+    color: #64748b;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.clear-btn:hover { border-color: #ef4444; color: #ef4444;}

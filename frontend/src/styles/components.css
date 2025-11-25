@@ -1,0 +1,308 @@
+/* Botão Genérico */
+.btn-primary {
+  background-color: var(--primary-blue);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-blue-dark);
+}
+
+.btn-secondary {
+  background-color: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-light);
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+
+.modal-content {
+  background-color: var(--surface-dark-1);
+  padding: 25px;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 400px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.modal-content h3 {
+  margin-bottom: 15px;
+  font-size: 1.4rem;
+}
+
+.modal-content input,
+.modal-content textarea {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 15px;
+  background-color: var(--surface-dark-2);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-light);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* Context Menu */
+.context-menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9998;
+}
+
+.message-context-menu {
+  position: absolute;
+  background: var(--surface-dark-1);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 9999;
+  padding: 5px 0;
+  min-width: 150px;
+}
+
+.message-context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 15px;
+  background: none;
+  border: none;
+  color: var(--text-light);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.message-context-menu button:hover {
+  background-color: var(--surface-dark-2);
+  color: var(--primary-blue);
+}
+
+
+/* Copilot Panel styles moved to copilot.css */
+
+/* Audio Player Moderno (Estilo WhatsApp) */
+.custom-audio-player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 8px;
+  /* Padding ajustado */
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.2);
+  /* Fundo mais sutil */
+  min-width: 280px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.2s;
+}
+
+.custom-audio-player:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* Avatar Container */
+.audio-avatar-container {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+
+.audio-avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.audio-mic-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  background: #00a884;
+  /* Verde WhatsApp */
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #0b141a;
+  /* Cor do fundo do chat para "recorte" */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.audio-control-btn {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #e9edef;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.audio-control-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.05);
+}
+
+.audio-control-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.audio-track-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  margin-right: 8px;
+}
+
+.audio-progress-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  cursor: pointer;
+  position: relative;
+  overflow: visible;
+  /* Permitir bolinha sair */
+}
+
+.audio-progress-fill {
+  height: 100%;
+  background: #00a884;
+  /* Verde WhatsApp */
+  border-radius: 2px;
+  position: relative;
+}
+
+/* Bolinha do player (Handle) */
+.audio-progress-fill::after {
+  content: '';
+  position: absolute;
+  right: -5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #00a884;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  /* Escondido por padrão */
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.audio-progress-bar:hover .audio-progress-fill::after {
+  opacity: 1;
+  transform: translateY(-50%) scale(1.2);
+}
+
+.audio-timers {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: rgba(233, 237, 239, 0.7);
+  font-variant-numeric: tabular-nums;
+  /* Números monoespaçados */
+  margin-top: 2px;
+}
+
+.speed-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: rgba(233, 237, 239, 0.9);
+  border-radius: 12px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 36px;
+  text-align: center;
+  transition: background 0.2s;
+  margin-right: 4px;
+}
+
+.speed-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Lightbox */
+.lightbox-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.9);
+  z-index: 10000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: zoom-out;
+}
+
+.lightbox-content {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+}
+
+.lightbox-img {
+  max-width: 100%;
+  max-height: 90vh;
+  border-radius: 8px;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+}
+
+.lightbox-close-btn {
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 10px;
+}

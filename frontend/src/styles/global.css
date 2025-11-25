@@ -1,0 +1,125 @@
+/* ===================================================================
+   1. CONFIGURAÇÕES GLOBAIS E ROOT VARIABLES
+   =================================================================== */
+:root {
+  /* Cores Base */
+  --background-dark: #0d1117;
+  --surface-dark-1: #161b22;
+  --surface-dark-2: #21262d;
+
+  /* Cores Principais */
+  --primary-blue: #2f81f7;
+  --primary-blue-dark: #1f6feb;
+
+  /* Cores do Chat */
+  --seller-bubble: #005c4b;
+  --client-bubble: #202c33;
+
+  /* Cores de Texto e Borda */
+  --text-light: #e6edf3;
+  --text-secondary: #7d8590;
+  --border-color: #30363d;
+
+  /* Cores de Erro/Copilot */
+  --error-red: #f85149;
+  --copilot-surface: #0b141a;
+
+  /* Gradientes */
+  --background-gradient-start: #0f2027;
+  --background-gradient-end: #2c5364;
+  --background-main: #0d1117;
+
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--background-main);
+  color: var(--text-light);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar Customizada */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--surface-dark-2);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3b434d;
+}
+/* Import Modal Styles */
+
+.btn-icon-small {
+    width: 32px; height: 32px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; color: #cbd5e1;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: 0.2s;
+}
+.btn-icon-small:hover { background: #3b82f6; color: white; border-color: #3b82f6; }
+
+.text-btn { background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+.text-btn:hover { text-decoration: underline; }
+
+.chats-import-list { background: rgba(15, 23, 42, 0.4); }
+
+.import-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px; border-bottom: 1px solid #1e293b;
+    cursor: pointer; transition: 0.2s;
+}
+.import-item:hover { background: rgba(59, 130, 246, 0.1); }
+.import-item.selected { background: rgba(59, 130, 246, 0.2); }
+
+.checkbox-custom {
+    width: 20px; height: 20px;
+    border: 2px solid #475569; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-size: 0.8rem;
+}
+.import-item.selected .checkbox-custom {
+    background: #3b82f6; border-color: #3b82f6;
+}
+
+.import-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+.import-avatar-placeholder {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: #334155; display: flex; align-items: center; justify-content: center;
+    font-weight: bold; color: #cbd5e1;
+}
+
+.import-info h4 { margin: 0; font-size: 0.95rem; color: #f1f5f9; }
+.import-subtitle { font-size: 0.8rem; color: #64748b; }
+
+.badge-unread {
+    background: #22c55e; color: #020617; font-size: 0.7rem; font-weight: bold;
+    padding: 2px 6px; border-radius: 10px; margin-left: auto;
+}
+
+.custom-scroll::-webkit-scrollbar { width: 6px; }
+.custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }

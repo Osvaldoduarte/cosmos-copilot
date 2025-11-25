@@ -46,18 +46,56 @@ async def proxy_get_qr_code(request: Request, current_user: UserInDB = Depends(g
             frontend_body = await request.json()
         except:
             frontend_body = {}
+
         instance_name = frontend_body.get("instanceName") or INSTANCE_NAME
-        api_url = f"{EVOLUTION_API_URL}/instance/connect/{instance_name}"
         headers = {"apikey": EVOLUTION_API_KEY}
+
+        print_info(f"🔌 Tentando conectar na instância: {instance_name}")
+
         async with httpx.AsyncClient() as client:
-            response = await client.get(api_url, headers=headers, timeout=30.0)
-            if response.is_error:
-                raise HTTPException(status_code=response.status_code, detail=response.text)
-            return response.json()
+            # 1. Tenta conectar (pegar QR Code existente)
+            connect_url = f"{EVOLUTION_API_URL}/instance/connect/{instance_name}"
+            response = await client.get(connect_url, headers=headers, timeout=20.0)
+
+            # Se deu 401, a chave está errada. Para tudo.
+            if response.status_code == 401:
+                print_error("❌ Erro 401: API Key da Evolution incorreta.")
+                raise HTTPException(status_code=502, detail="Erro de Autenticação no Backend (API Key inválida)")
+
+            # Se deu sucesso (200), retorna o QR Code
+            if response.status_code == 200:
+                return response.json()
+
+            # 2. Se deu 404 (Não encontrada), vamos CRIAR a instância
+            if response.status_code == 404:
+                print_warning(f"⚠️ Instância '{instance_name}' não existe. Criando nova...")
+
+                create_url = f"{EVOLUTION_API_URL}/instance/create"
+                payload = {
+                    "instanceName": instance_name,
+                    "token": "",  # Opcional, pode deixar vazio ou gerar um token
+                    "qrcode": True,
+                    "integration": "WHATSAPP-BAILEYS"
+                }
+
+                create_response = await client.post(create_url, headers=headers, json=payload, timeout=30.0)
+
+                if create_response.status_code == 201:  # Criado com sucesso
+                    print_success(f"✅ Instância '{instance_name}' criada com sucesso!")
+                    return create_response.json()
+                else:
+                    # Se falhar ao criar
+                    print_error(f"❌ Falha ao criar instância: {create_response.text}")
+                    raise HTTPException(status_code=create_response.status_code, detail=create_response.text)
+
+            # Se for outro erro qualquer
+            raise HTTPException(status_code=response.status_code, detail=response.text)
+
     except HTTPException as he:
         raise he
     except Exception as e:
-        print_error(f"Proxy QR: {e}")
+        print_error(f"❌ Erro Crítico Proxy QR: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 

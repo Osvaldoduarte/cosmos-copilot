@@ -16,7 +16,7 @@ __pycache__/
 # --- BANCOS DE DADOS LOCAIS (Muito Importante) ---
 # Isso está pesando muito e não deve subir
 chroma_db_conversas/
-chroma_db_local/
+#chroma_db_local/
 data/
 
 # --- SEGURANÇA ---

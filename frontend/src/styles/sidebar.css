@@ -1,0 +1,247 @@
+/* src/styles/sidebar.css */
+
+/* --- CONTAINER --- */
+.conversation-list-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 350px;
+  min-width: 300px;
+  background-color: #161b22; /* Dark Surface */
+  border-right: 1px solid #30363d;
+  position: relative;
+  z-index: 20;
+}
+
+/* --- HEADER --- */
+.conversation-list-header {
+  height: 70px;
+  padding: 0 20px;
+  background-color: rgba(22, 27, 34, 0.95);
+  border-bottom: 1px solid #30363d;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.conversation-list-header h3 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #e6edf3;
+  margin: 0;
+}
+
+/* Botão Nova Conversa (+) */
+.new-chat-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(56, 139, 253, 0.15); /* Azul fraquinho */
+  border: 1px solid rgba(56, 139, 253, 0.4);
+  color: #58a6ff; /* Azul texto */
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.new-chat-btn:hover {
+  background: #1f6feb;
+  color: white;
+  transform: scale(1.05);
+}
+
+.new-chat-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* --- BARRA DE BUSCA (Correção da Lupa) --- */
+.search-bar {
+  padding: 15px 20px;
+  position: relative; /* Necessário para a lupa absoluta */
+  background-color: #161b22;
+}
+
+.search-bar input {
+  width: 100%;
+  padding: 10px 12px 10px 40px; /* 40px na esquerda para caber a lupa */
+  border-radius: 8px;
+  border: 1px solid #30363d;
+  background-color: #0d1117; /* Fundo mais escuro que o painel */
+  color: #e6edf3;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.search-bar input:focus {
+  border-color: #58a6ff;
+}
+
+.search-icon {
+  position: absolute;
+  left: 32px; /* 20px do padding container + 12px de margem interna */
+  top: 50%;
+  transform: translateY(-50%);
+  color: #7d8590;
+  width: 16px;
+  height: 16px;
+  pointer-events: none; /* Deixa clicar através do ícone */
+}
+
+/* --- LISTA DE CONVERSAS --- */
+.conversation-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.conversation-item {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-bottom: 4px;
+}
+
+.conversation-item:hover {
+  background-color: rgba(177, 186, 196, 0.08);
+}
+
+.conversation-item.active {
+  background-color: rgba(56, 139, 253, 0.15);
+}
+
+.conversation-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  margin-right: 12px;
+  background-color: #30363d;
+  object-fit: cover;
+}
+
+.conversation-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.conversation-name {
+  font-weight: 600;
+  color: #e6edf3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.95rem;
+}
+
+.conversation-snippet {
+  font-size: 0.8rem;
+  color: #7d8590;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- FOOTER (Botões Alinhados) --- */
+.conversation-list-footer {
+  padding: 15px;
+  background-color: rgba(22, 27, 34, 0.95);
+  border-top: 1px solid var(--border-color);
+
+  /* Grid para dividir exatamente 50% / 50% */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.footer-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px; /* Espaço entre ícone e texto */
+  height: 40px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%; /* Ocupa todo o espaço da célula do grid */
+}
+
+.btn-manager {
+  background: rgba(56, 139, 253, 0.1);
+  border: 1px solid rgba(56, 139, 253, 0.3);
+  color: #58a6ff; /* Azul Github/Cosmos */
+}
+
+.btn-manager:hover {
+  background: rgba(56, 139, 253, 0.2);
+  border-color: #58a6ff;
+  transform: translateY(-1px);
+}
+
+/* Estilo do Botão Sair (Vermelho) */
+.btn-logout {
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  color: #f85149; /* Vermelho Suave */
+}
+
+.btn-logout:hover {
+  background: rgba(248, 81, 73, 0.2);
+  border-color: #f85149;
+  transform: translateY(-1px);
+}
+
+/* Ajuste fino para os ícones SVG dentro dos botões */
+.footer-btn svg {
+  flex-shrink: 0;
+}
+
+/* Botão do Manager (Dashboard) */
+.action-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid #30363d;
+  background: transparent;
+  color: #7d8590;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.action-btn:hover {
+  border-color: #58a6ff;
+  color: #58a6ff;
+  background: rgba(56, 139, 253, 0.1);
+}
+
+/* Botão Sair */
+.logout-btn {
+  flex: 1; /* Ocupa o resto do espaço */
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid rgba(248, 81, 73, 0.4);
+  background: rgba(248, 81, 73, 0.1);
+  color: #f85149; /* Vermelho */
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.logout-btn:hover {
+  background: rgba(248, 81, 73, 0.2);
+}

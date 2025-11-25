@@ -2,8 +2,8 @@
 import axios from 'axios';
 
 const api = axios.create({
-    //baseURL: 'https://cosmos-backend-129644477821.us-central1.run.app' // URL do seu backend
-    baseURL: 'http://127.0.0.1:8000'
+    baseURL: 'https://cosmos-backend-129644477821.us-central1.run.app' // URL do seu backend
+    //baseURL: 'http://127.0.0.1:8000'
 });
 
 // Interceptor: Anexa o token JWT em CADA requisição

@@ -1,173 +1,130 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import Drawer from 'react-modern-drawer';
-import 'react-modern-drawer/dist/index.css';
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 
+// Componentes de Página
 import Login from './components/Login';
-import ConversationList from './components/ConversationList';
-import ChatPanel from './components/ChatPanel';
-import CopilotPanel from './components/CopilotPanel';
-import NewConversationModal from './components/NewConversationModal';
-import ConnectInstancePage from './components/ConnectInstancePage';
+import MainLayout from './components/MainLayout';
+import ManagementPage from './pages/ManagementPage';
+import AdminPage from './pages/AdminPage';
+import LandingPage from './pages/LandingPage';
 
+// Contexto
 import { useAuth } from './hooks/useAuth';
-import { useResponsive } from './hooks/useResponsive';
-import { ChatProvider, useChat } from './context/ChatContext';
+import { ChatProvider } from './context/ChatContext';
+import { ToastProvider } from './context/ToastContext';
 
-const CosmosLogo = () => (
-  <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 2a3 3 0 0 0-3 3v1a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 11h-2"/><path d="M5 11H3"/><path d="M12 18a3 3 0 0 0 3 3h1a3 3 0 0 0 3-3v-1a3 3 0 0 0-3-3h-1v4Z"/><path d="M12 18a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-1a3 3 0 0 1 3-3h1v4Z"/><path d="M12 8v4"/>
-  </svg>
-);
-
-// --- Tela de Carregamento ---
-function ConnectionLoadingScreen({ onAnimationEnd }) {
+// --- TELA DE LOADING ---
+const ConnectionLoadingScreen = ({ onAnimationEnd }) => {
   const [loadingTextIndex, setLoadingTextIndex] = useState(0);
   const [isFadingOut, setIsFadingOut] = useState(false);
-  const messages = ["Acessando o Cosmos...", "Estabelecendo conexão neural...", "Sincronizando com a IA central...", "Preparando sua experiência...", "Quase lá!"];
+  const messages = ["Acessando o Cosmos...", "Sincronizando Neurônios...", "Carregando Interface...", "Bem-vindo ao Futuro..."];
 
   useEffect(() => {
     const textInterval = setInterval(() => setLoadingTextIndex(p => (p + 1) % messages.length), 2000);
-    // Reduzi um pouco o timeout para ser mais ágil
-    const fadeOutTimeout = setTimeout(() => setIsFadingOut(true), 4000);
+    const fadeOutTimeout = setTimeout(() => setIsFadingOut(true), 3500);
     return () => { clearInterval(textInterval); clearTimeout(fadeOutTimeout); };
-  }, []); // Removido messages.length da dependência para evitar recriação desnecessária
+  }, []);
 
   const handleAnimationEnd = (e) => {
-    // Garante que só dispara se for a animação de fade-out
-    if (e.animationName.includes('fadeOut') || isFadingOut) {
-        onAnimationEnd();
-    }
+    if (e.animationName.includes('fadeOut') || isFadingOut) onAnimationEnd();
   };
 
   return (
     <div className={`connection-loading-screen ${isFadingOut ? 'fade-out' : ''}`} onAnimationEnd={handleAnimationEnd}>
-      <div className="connection-logo"><CosmosLogo /></div>
-      <div className="loading-text" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
-        <div className="spinner-dot"></div> {messages[loadingTextIndex]}
-      </div>
-      <div className="animated-background-lines"><div className="line"></div><div className="line"></div><div className="line"></div><div className="line"></div><div className="line"></div></div>
+      {/* Mantenha seu SVG do logo e estrutura aqui */}
+      <div className="loading-text">Carregando...</div>
     </div>
   );
-}
+};
 
-// --- MainLayout ---
-const MainLayout = ({ onLogout }) => {
-  const isMobile = useResponsive();
-  const { isCopilotOpen, handleToggleCopilot, handleBackToList, activeConversationId, setIsCopilotOpen } = useChat();
+// --- ROTA INTELIGENTE (ROOT) ---
+// ✨ AQUI ESTÁ A MÁGICA: Decide se mostra Landing ou App
+const RootRoute = () => {
+  const { isAuthenticated, user, instanceConnected, isLoading } = useAuth();
 
-  const { isModalOpen, handleCloseModal, handleStartConversation } = useChat();
-  const [isModalLoading, setIsModalLoading] = useState(false);
+  if (isLoading) return <div style={{ height: '100vh', background: '#020617' }}></div>;
 
-  const onStart = async (number, message) => {
-    setIsModalLoading(true);
-    const success = await handleStartConversation(number, message);
-    if (success) handleCloseModal();
-    setIsModalLoading(false);
-  };
+  // 1. Se NÃO estiver logado, mostra a Landing Page (Venda)
+  if (!isAuthenticated) {
+    return <LandingPage />;
+  }
 
-  useEffect(() => { if (!isMobile) setIsCopilotOpen(true); }, [isMobile, setIsCopilotOpen]);
-  useEffect(() => {
-    const handleKeyDown = (e) => { if (e.key === 'Escape') handleBackToList(); };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleBackToList]);
+  // 2. Se estiver logado, redireciona para o lugar certo
+  if (user?.tenant?.type === 'ADMIN' || user?.tenant_id === 'admin_master') {
+    return <Navigate to="/admin" replace />;
+  }
 
-  const showCopilot = isCopilotOpen && activeConversationId;
+  // 3. Se for usuário normal conectado, vai pro Chat
+  if (instanceConnected) {
+    return <Navigate to="/app" replace />;
+  }
 
-  const layout = isMobile ? (
-    <div className="mobile-layout">
-      {activeConversationId ? (
-        <ChatPanel onToggleCopilot={handleToggleCopilot} onBack={handleBackToList} />
-      ) : (
-        <ConversationList onLogout={onLogout} />
-      )}
-      <Drawer open={isCopilotOpen} onClose={handleToggleCopilot} direction='right' size={'80vw'} className='copilot-drawer'>
-          <CopilotPanel />
-      </Drawer>
-    </div>
-  ) : (
-    <PanelGroup direction="horizontal" className="main-layout desktop-layout">
-      <Panel id="sidebar" defaultSize={25} minSize={20} maxSize={30} order={1}>
-        <ConversationList onLogout={onLogout} />
-      </Panel>
-      <PanelResizeHandle />
-      <Panel
-        id="chat"
-        order={2}
-        minSize={30}
-        defaultSize={showCopilot ? 45 : 75}
-        key={showCopilot ? 'chat-compact' : 'chat-full'}
-      >
-        <ChatPanel onToggleCopilot={handleToggleCopilot} />
-      </Panel>
-      {showCopilot && (
-        <>
-          <PanelResizeHandle />
-          <Panel id="copilot" defaultSize={30} minSize={20} maxSize={40} order={3}>
-            <CopilotPanel />
-          </Panel>
-        </>
-      )}
-    </PanelGroup>
-  );
+  // 4. Se for usuário normal desconectado, vai pro Manager
+  return <Navigate to="/manager" replace />;
+};
 
-  return (
-    <>
-      {layout}
-      <NewConversationModal
-        isOpen={isModalOpen}
-        onClose={handleCloseModal}
-        onStartConversation={onStart}
-        isLoading={isModalLoading}
-      />
-    </>
-  );
-}
 
-// --- App Component ---
+// --- ROTAS DE PROTEÇÃO ---
+const PrivateRoute = ({ children }) => {
+  const { isAuthenticated, token, isLoading } = useAuth();
+  if (isLoading) return <div></div>;
+  if (!isAuthenticated || !token) return <Navigate to="/login" />;
+  return children;
+};
+
+const PrivateSystemRoute = ({ children }) => {
+  const { isAuthenticated, instanceConnected, user, isLoading } = useAuth();
+  if (isLoading) return <div></div>;
+  if (!isAuthenticated || !user) return <Navigate to="/login" />;
+  if (user?.tenant?.type === 'ADMIN') return <Navigate to="/admin" />;
+  if (!instanceConnected) return <Navigate to="/manager" />;
+  return children;
+};
+
+// --- APP PRINCIPAL ---
 function App() {
-  const { isAuthenticated, instanceConnected, token, handleLogout, handleConnectSuccess } = useAuth();
+  const { isAuthenticated, handleLogout } = useAuth();
   const [showTransitionScreen, setShowTransitionScreen] = useState(false);
-  // ✨ CORREÇÃO: Estado para garantir que a intro rode apenas uma vez
   const [hasPlayedIntro, setHasPlayedIntro] = useState(false);
 
-  const renderContent = () => {
-    if (isAuthenticated) {
-      if (!instanceConnected && token) {
-        return <ConnectInstancePage onConnectSuccess={handleConnectSuccess} />;
-      } else if (instanceConnected && token) {
-        return (
-          <ChatProvider>
-            <MainLayout onLogout={handleLogout} />
-          </ChatProvider>
-        );
-      }
-    }
-    return <Login />;
-  };
-
   useEffect(() => {
-    // ✨ CORREÇÃO: Adicionado !hasPlayedIntro na verificação
-    // Se estamos logados, mas a intro ainda não tocou, toque-a.
-    if (isAuthenticated && token && !showTransitionScreen && !hasPlayedIntro) {
-        setShowTransitionScreen(true);
-        setHasPlayedIntro(true); // Marca como tocada para não repetir
+    if (isAuthenticated && !showTransitionScreen && !hasPlayedIntro) {
+      setShowTransitionScreen(true);
+      setHasPlayedIntro(true);
     }
-  }, [isAuthenticated, token, showTransitionScreen, hasPlayedIntro]);
-
-  const handleTransitionEnd = useCallback(() => {
-    setShowTransitionScreen(false);
-  }, []);
+  }, [isAuthenticated, showTransitionScreen, hasPlayedIntro]);
 
   return (
-    <div className="App">
-      {showTransitionScreen ? (
-          <ConnectionLoadingScreen onAnimationEnd={handleTransitionEnd} />
-      ) : (
-          renderContent()
-      )}
-    </div>
+    <ToastProvider>
+      <Router>
+        <div className="App">
+          {showTransitionScreen ? (
+            <ConnectionLoadingScreen onAnimationEnd={() => setShowTransitionScreen(false)} />
+          ) : (
+            <Routes>
+              {/* ✨ ROTA RAIZ AGORA É INTELIGENTE */}
+              <Route path="/" element={<RootRoute />} />
+
+              <Route path="/login" element={!isAuthenticated ? <Login /> : <Navigate to="/" />} />
+
+              <Route path="/admin" element={<PrivateRoute><AdminPage /></PrivateRoute>} />
+
+              <Route path="/manager" element={<PrivateRoute><ManagementPage /></PrivateRoute>} />
+
+              <Route path="/app" element={
+                <PrivateSystemRoute>
+                  <ChatProvider>
+                    <MainLayout onLogout={handleLogout} />
+                  </ChatProvider>
+                </PrivateSystemRoute>
+              } />
+
+              <Route path="*" element={<Navigate to="/" />} />
+            </Routes>
+          )}
+        </div>
+      </Router>
+    </ToastProvider>
   );
 }
 
