@@ -56,7 +56,7 @@ graph TD
         FastAPI -->|Pub/Sub| WebSocketMgr[WebSocket Manager]
         FastAPI <-->|Cache| Redis[(Redis Cache)]
         FastAPI <-->|Vectors| ChromaDB[(ChromaDB RAG)]
-        FastAPI <-->|Inference| LLM["LLM Service (GPT/Gemini)""]
+        FastAPI <-->|Inference| LLM["LLM Service (GPT/Gemini)"]
     end
     
     subgraph "Seller Dashboard"
