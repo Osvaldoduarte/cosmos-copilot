@@ -20,6 +20,13 @@
 
 This project demonstrates a robust implementation of **Agentic AI** workflows, real-time **WebSockets**, and **Microservices** architecture.
 
+### Screenshots
+
+<div align="center">
+  <img src="assets/landing_preview.png" alt="Landing Page" width="45%" />
+  <img src="assets/dashboard_preview.png" alt="Dashboard" width="45%" />
+</div>
+
 ### Key Features
 
 *   **🤖 Real-Time AI Copilot**: Analyzes incoming WhatsApp messages instantly and suggests the best professional responses based on sales playbooks and product knowledge.
@@ -49,7 +56,7 @@ graph TD
         FastAPI -->|Pub/Sub| WebSocketMgr[WebSocket Manager]
         FastAPI <-->|Cache| Redis[(Redis Cache)]
         FastAPI <-->|Vectors| ChromaDB[(ChromaDB RAG)]
-        FastAPI <-->|Inference| LLM[LLM Service (GPT/Gemini)]
+        FastAPI <-->|Inference| LLM["LLM Service (GPT/Gemini)""]
     end
     
     subgraph "Seller Dashboard"
@@ -92,6 +99,13 @@ graph TD
 
 Este projeto demonstra uma implementação robusta de fluxos de **IA Agêntica**, **WebSockets** em tempo real e arquitetura de **Microsserviços**.
 
+### Screenshots
+
+<div align="center">
+  <img src="assets/landing_preview.png" alt="Landing Page" width="45%" />
+  <img src="assets/dashboard_preview.png" alt="Dashboard" width="45%" />
+</div>
+
 ### Funcionalidades Principais
 
 *   **🤖 Copilot de IA em Tempo Real**: Analisa mensagens recebidas no WhatsApp instantaneamente e sugere as melhores respostas profissionais baseadas em playbooks de vendas.
@@ -121,7 +135,7 @@ graph TD
         FastAPI -->|Pub/Sub| WebSocketMgr[Gerenciador WebSocket]
         FastAPI <-->|Cache| Redis[(Redis Cache)]
         FastAPI <-->|Vetores| ChromaDB[(ChromaDB RAG)]
-        FastAPI <-->|Inferência| LLM[Serviço LLM (GPT/Gemini)]
+        FastAPI <-->|Inferência| LLM["Serviço LLM (GPT/Gemini)"]
     end
     
     subgraph "Dashboard do Vendedor"
@@ -157,5 +171,5 @@ graph TD
 
 ### Author / Autor
 
-Developed with ❤️ by **Osvaldo Duarte**.
+Developed by **Osvaldo Duarte**.
 *Building the future of AI-driven sales.*

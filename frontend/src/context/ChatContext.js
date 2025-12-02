@@ -63,7 +63,7 @@ export const ChatProvider = ({ children }) => {
     const { token, handleLogout } = useAuth();
     // --- CONFIGURAÇÃO DE AMBIENTE (LIGA/DESLIGA) ---
     // 💡 COMENTE a linha 'IS_DEV = true' para ir para PRODUÇÃO
-    const IS_DEV = true; // (true = dev false = prod)
+    const IS_DEV = false; // (true = dev false = prod)
 
     const DEV_URL = 'http://localhost:8000';
     const PROD_URL = 'https://cosmos-backend-ocgvnigdzq-uc.a.run.app'; // URL da sua Cloud Run
