@@ -35,7 +35,7 @@
 .kpi-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
 .kpi-icon.blue { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
 .kpi-icon.green { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
-.kpi-icon.purple { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+.kpi-icon.purple { background: rgba(168, 85, 247, 0.15); color: #93c5fd; }
 .kpi-icon.orange { background: rgba(249, 115, 22, 0.15); color: #fb923c; }
 .kpi-icon .icon { width: 20px; height: 20px; }
 .kpi-label { font-size: 0.75rem; color: #94a3b8; margin: 0; }
@@ -98,7 +98,7 @@
 .stat-box { background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; text-align: center; border: 1px solid #334155; }
 .stat-box span { display: block; font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; }
 .stat-box strong { font-size: 1.1rem; color: #e2e8f0; }
-.stat-box.highlight { border-color: #8b5cf6; background: rgba(139, 92, 246, 0.1); }
+.stat-box.highlight { border-color: #3b82f6; background: rgba(139, 92, 246, 0.1); }
 
 .charts-row { display: flex; gap: 2rem; margin-top: 2rem; }
 .chart-container { flex: 1; display: flex; flex-direction: column; align-items: center; }

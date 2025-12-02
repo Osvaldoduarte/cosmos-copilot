@@ -50,11 +50,11 @@
 }
 .header-left h1 {
     margin: 0; font-size: 1.8rem; font-weight: 800;
-    background: linear-gradient(to right, #c084fc, #f472b6);
+    background: linear-gradient(to right, #93c5fd, #f472b6);
     -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .badge-admin {
-    background: rgba(139, 92, 246, 0.2); color: #d8b4fe; font-size: 0.7rem;
+    background: rgba(139, 92, 246, 0.2); color: #bfdbfe; font-size: 0.7rem;
     padding: 4px 8px; border-radius: 4px; letter-spacing: 1px; margin-left: 10px; vertical-align: middle;
 }
 .btn-logout {
@@ -75,7 +75,7 @@
     width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;
 }
 .kpi-icon.blue { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
-.kpi-icon.purple { background: rgba(168, 85, 247, 0.2); color: #c084fc; }
+.kpi-icon.purple { background: rgba(168, 85, 247, 0.2); color: #93c5fd; }
 .kpi-icon.green { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
 .kpi-info h3 { margin: 0; font-size: 1.8rem; font-weight: 700; }
 .kpi-info p { margin: 0; color: #94a3b8; font-size: 0.9rem; }
@@ -107,7 +107,7 @@
 
 /* BOTÕES GERAIS */
 .btn-primary-glow {
-    background: linear-gradient(90deg, #7c3aed, #db2777); border: none; color: white; padding: 10px 20px;
+    background: linear-gradient(90deg, #2563eb, #1e40af); border: none; color: white; padding: 10px 20px;
     border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;
     box-shadow: 0 0 15px rgba(124, 58, 237, 0.4); transition: 0.2s;
 }
@@ -140,14 +140,14 @@
 .modal-tabs button {
     background: none; border: none; color: #94a3b8; padding: 10px; cursor: pointer; border-bottom: 2px solid transparent;
 }
-.modal-tabs button.active { color: white; border-bottom-color: #8b5cf6; }
+.modal-tabs button.active { color: white; border-bottom-color: #3b82f6; }
 
 .input-disabled { background: #0f172a; color: #64748b; border-color: #1e293b; cursor: not-allowed; }
 .modal-panel input {
     width: 100%; padding: 12px; background: #1e293b; border: 1px solid #334155;
     border-radius: 8px; color: white; margin-bottom: 1rem; outline: none;
 }
-.modal-panel input:focus { border-color: #8b5cf6; }
+.modal-panel input:focus { border-color: #3b82f6; }
 
 /* GRID DE INPUTS DO USUÁRIO */
 .grid-inputs {
@@ -179,7 +179,7 @@
 }
 .spinner-dot {
     width: 40px; height: 40px; border: 4px solid rgba(139,92,246,0.3);
-    border-top-color: #8b5cf6; border-radius: 50%; animation: spin 1s linear infinite;
+    border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -237,7 +237,7 @@
 
 .kpi-card.clickable:hover {
     transform: translateY(-5px);
-    border-color: #c084fc;
+    border-color: #93c5fd;
     box-shadow: 0 10px 30px rgba(168, 85, 247, 0.1);
 }
 
@@ -247,7 +247,7 @@
     bottom: 10px;
     right: 15px;
     font-size: 0.7rem;
-    color: #c084fc;
+    color: #93c5fd;
     opacity: 0;
     transition: 0.2s;
 }

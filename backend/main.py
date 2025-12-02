@@ -41,9 +41,32 @@ def print_success(msg): print(f"{Colors.GREEN}✅ {msg}{Colors.END}")
 def print_warning(msg): print(f"{Colors.YELLOW}⚠️  {msg}{Colors.END}")
 
 
+def normalize_jid(jid: str) -> str:
+    """
+    Normaliza JID para formato padrão @s.whatsapp.net.
+    Converte @lid (novo formato WhatsApp) para @s.whatsapp.net
+    para evitar conversas duplicadas.
+    """
+    if not jid:
+        return jid
+    
+    # Se já está no formato padrão, retorna
+    if '@s.whatsapp.net' in jid:
+        return jid
+    
+    # Converte @lid para @s.whatsapp.net (REMOVIDO: LID != Número de telefone)
+    # if '@lid' in jid:
+    #     number = jid.split('@')[0]
+    #     return f"{number}@s.whatsapp.net"
+    
+    # Para grupos (@g.us) e outros formatos, mantém original
+    return jid
+
+
+
 # --- Carregamento de Variáveis ---
 EVO_URL = os.getenv("EVOLUTION_API_URL")
-EVO_INSTANCE = os.getenv("EVOLUTION_INSTANCE_NAME")
+# EVO_INSTANCE removed - multi-tenant app uses tenant.instance_name from database
 EVO_TOKEN = os.getenv("EVOLUTION_API_KEY")
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
@@ -62,8 +85,7 @@ else:
     print(f"{Colors.YELLOW}⚠️  REDIS_URL não encontrada. Rodando apenas em memória.{Colors.END}")
 
 # --- Estado Global ---
-STATE_LOCK = asyncio.Lock()
-CONVERSATION_STATE_STORE: Dict[str, Any] = {}
+from core.state import CONVERSATION_STATE_STORE, STATE_LOCK
 
 def save_to_redis(jid: str):
     """Salva uma conversa específica da memória para o Redis"""
@@ -124,6 +146,7 @@ class User(BaseModel):
     tenant_id: str
     # 👇 AQUI ESTÁ A CORREÇÃO: Adicionamos o campo tenant
     tenant: Optional[TenantInfo] = None
+    tokens_used: int = 0
 
     class Config:
         from_attributes = True
@@ -150,12 +173,7 @@ class CreateUserSchema(BaseModel):
 # --- Configuração do FastAPI ---
 app = FastAPI()
 
-origins = [
-    "http://localhost:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:8000"
-]
+origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -236,7 +254,8 @@ async def get_current_active_user(token: str = Depends(oauth2_scheme)) -> User:
         "hashed_password": user_db.hashed_password,
         "disabled": user_db.disabled,
         "tenant_id": user_db.tenant_id,
-        "tenant": user_db.tenant
+        "tenant": user_db.tenant,
+        "tokens_used": user_db.tokens_used
     }
 
     return User(**user_dict)
@@ -337,7 +356,41 @@ async def create_evolution_instance(instance_name: str):
             print_info(f"Evolution Create Resp: {resp.status_code} - {resp.text}")
 
             if resp.status_code == 201:
-                return resp.json()  # Sucesso: Retorna Dict
+                instance_data = resp.json()
+                
+                # 🔥 CONFIGURAR WEBHOOK AUTOMATICAMENTE
+                print_info(f"🔗 Configurando webhook para {instance_name}...")
+                webhook_url = "https://cosmos-backend-129644477821.us-central1.run.app/webhook/evolution"
+                webhook_payload = {
+                    "webhook": {
+                        "enabled": True,
+                        "url": webhook_url,
+                        "webhookByEvents": False,
+                        "webhookBase64": False,
+                        "events": [
+                            "QRCODE_UPDATED",
+                            "MESSAGES_UPSERT",
+                            "MESSAGES_UPDATE",
+                            "SEND_MESSAGE",
+                            "CONNECTION_UPDATE"
+                        ]
+                    }
+                }
+                
+                webhook_resp = await client.post(
+                    f"{EVO_URL}/webhook/set/{instance_name}",
+                    headers=headers,
+                    json=webhook_payload,
+                    timeout=10.0
+                )
+                
+                if webhook_resp.status_code in [200, 201]:
+                    print_success(f"✅ Webhook configurado: {webhook_url}")
+                else:
+                    print_warning(f"⚠️ Webhook não configurado: {webhook_resp.status_code} - {webhook_resp.text}")
+                
+                return instance_data  # Sucesso: Retorna Dict
+                
             elif resp.status_code == 403 and "already exists" in resp.text:
                 # Se já existe, tentamos buscar os dados dela para não travar
                 print_warning("Instância já existe, tentando recuperar dados...")
@@ -387,16 +440,37 @@ async def get_dashboard_data(current_user: User = Depends(get_current_active_use
         ).all()
 
         users_list = [
-            {"username": u.username, "full_name": u.full_name, "disabled": u.disabled}
+            {
+                "username": u.username, 
+                "full_name": u.full_name, 
+                "disabled": u.disabled,
+                "metrics": {
+                    "ai_usage": f"{u.tokens_used}",
+                    "clients_month": 0, # Placeholder
+                    "response": "Em breve",
+                    "pie": {"text": 100, "audio": 0, "image": 0, "video": 0},
+                    "messages": {"text": 0, "audio": 0, "image": 0, "video": 0, "total": 0}
+                }
+            }
             for u in company_users
         ]
     finally:
         db.close()
 
+    # 3. Calcular Métricas
+    total_tokens = sum(u.tokens_used for u in company_users)
+    active_clients_count = len(CONVERSATION_STATE_STORE) # Aproximação baseada na memória atual
+
     return {
         "company_name": current_user.tenant.name,
         "instance_name": current_user.tenant.instance_name,
         "connection_status": instance_status,
+        "globalMetrics": {
+            "active_clients": active_clients_count,
+            "avg_response": "Em breve",
+            "total_ai": f"{total_tokens}",
+            "total_team": len(company_users)
+        },
         "users": users_list
     }
 
@@ -616,10 +690,10 @@ async def import_selected_chats(
                 avatar = ""
 
                 try:
-                    # 1. Tenta buscar mensagens (Limite 20 para economizar banda)
+                    # 1. Tenta buscar mensagens (Aumentado para 100 para garantir histórico recente completo)
                     payload = {
                         "where": {"key": {"remoteJid": jid}},
-                        "limit": 20,
+                        "limit": 100,
                         "page": 1
                     }
                     resp = await client.post(
@@ -654,6 +728,10 @@ async def import_selected_chats(
                                     content = "📝 [Mensagem]"
 
                             if content:
+                                # Log para debug de mensagens perdidas
+                                if "opa ja vejo" in content.lower():
+                                    print_success(f"   🎯 ENCONTRADA: {content} (ID: {m.get('key', {}).get('id')})")
+                                
                                 processed_msgs.append({
                                     "content": content,
                                     "sender": "vendedor" if m.get("key", {}).get("fromMe") else "cliente",
@@ -683,17 +761,47 @@ async def import_selected_chats(
                     # 3. SÓ SALVA SE TIVER CONTEÚDO REAL
                     if processed_msgs:
                         async with STATE_LOCK:
-                            CONVERSATION_STATE_STORE[jid] = {
-                                "name": chat_name,
-                                "avatar_url": avatar,
-                                "messages": processed_msgs,
-                                "unread": False,
-                                "lastUpdated": processed_msgs[-1]["timestamp"] * 1000
-                            }
+                            # --- LÓGICA DELTA (OTIMIZAÇÃO) ---
+                            existing_data = CONVERSATION_STATE_STORE.get(jid)
+                            
+                            if existing_data:
+                                # 1. Recupera mensagens antigas
+                                old_msgs = existing_data.get("messages", [])
+                                old_ids = {m["message_id"] for m in old_msgs}
+                                
+                                # 2. Filtra apenas as novas (que não temos)
+                                new_msgs = [m for m in processed_msgs if m["message_id"] not in old_ids]
+                                
+                                if not new_msgs:
+                                    print_info(f"   ⏩ {chat_name}: Nenhuma mensagem nova. Pulando update.")
+                                    continue # Pula para o próximo JID
+                                    
+                                # 3. Mescla e Ordena
+                                final_msgs = old_msgs + new_msgs
+                                final_msgs.sort(key=lambda x: x["timestamp"])
+                                
+                                # 4. Atualiza Estado
+                                CONVERSATION_STATE_STORE[jid]["messages"] = final_msgs
+                                CONVERSATION_STATE_STORE[jid]["lastUpdated"] = final_msgs[-1]["timestamp"] * 1000
+                                # Atualiza metadados se mudaram
+                                if chat_name: CONVERSATION_STATE_STORE[jid]["name"] = chat_name
+                                if avatar: CONVERSATION_STATE_STORE[jid]["avatar_url"] = avatar
+                                
+                                print_success(f"   ➕ {chat_name}: Adicionadas {len(new_msgs)} novas msgs (Total: {len(final_msgs)}).")
+                                
+                            else:
+                                # Se não existe, cria do zero
+                                CONVERSATION_STATE_STORE[jid] = {
+                                    "name": chat_name,
+                                    "avatar_url": avatar,
+                                    "messages": processed_msgs,
+                                    "unread": False,
+                                    "lastUpdated": processed_msgs[-1]["timestamp"] * 1000
+                                }
+                                print_success(f"   💾 {chat_name}: Criado com {len(processed_msgs)} msgs.")
 
                         # Salva no Redis (ÚNICO PONTO DE ESCRITA)
                         save_to_redis(jid)
-                        print_success(f"   💾 {chat_name}: Salvo com {len(processed_msgs)} msgs.")
 
                 except Exception as exc:
                     print_error(f"   ❌ Erro processando {jid}: {exc}")
@@ -969,7 +1077,52 @@ async def register_user(req: UserCreateRequest, current_user: User = Depends(get
     else:
         raise HTTPException(status_code=500, detail="Erro ao salvar no banco")
 
-async def process_and_broadcast_message(conversation_id: str, message_obj: Dict[str, Any]):
+async def fetch_profile_picture_background(jid: str, instance_name: str):
+    """
+    Busca a foto do perfil em background e atualiza o estado.
+    """
+    if not instance_name or not EVO_URL:
+        return
+
+    # Evita busca repetida se já tiver URL (double check)
+    if jid in CONVERSATION_STATE_STORE and CONVERSATION_STATE_STORE[jid].get("avatar_url"):
+        return
+
+    print_info(f"📸 Buscando foto para {jid} em background...")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            headers = {"apikey": EVO_TOKEN} # Usa token global por enquanto
+            
+            # Busca foto
+            number = jid.split('@')[0]
+            resp = await client.get(
+                f"{EVO_URL}/chat/findPicture/{instance_name}/{number}",
+                headers=headers
+            )
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                picture_url = data.get("picture")
+                
+                if picture_url:
+                    async with STATE_LOCK:
+                        if jid in CONVERSATION_STATE_STORE:
+                            CONVERSATION_STATE_STORE[jid]["avatar_url"] = picture_url
+                            save_to_redis(jid)
+                            
+                            # Broadcast update de perfil
+                            await manager.broadcast({
+                                "type": "profile_update",
+                                "conversation_id": jid,
+                                "avatar_url": picture_url,
+                                "name": CONVERSATION_STATE_STORE[jid].get("name")
+                            })
+                    print_success(f"📸 Foto atualizada para {jid}")
+    except Exception as e:
+        print_error(f"Erro ao buscar foto em background: {e}")
+
+
+async def process_and_broadcast_message(conversation_id: str, message_obj: Dict[str, Any], instance_name: str = None):
     global CONVERSATION_STATE_STORE
     try:
         async with STATE_LOCK:
@@ -983,14 +1136,21 @@ async def process_and_broadcast_message(conversation_id: str, message_obj: Dict[
                     "unread": False, "unreadCount": 0, "lastUpdated": 0, "avatar_url": ""
                 }
 
-            CONVERSATION_STATE_STORE[conversation_id]["messages"].append(message_obj)
-            CONVERSATION_STATE_STORE[conversation_id]["lastUpdated"] = message_obj.get("timestamp",
-                                                                                       int(time.time())) * 1000
-            if message_obj.get("sender") == "cliente":
-                CONVERSATION_STATE_STORE[conversation_id]["unread"] = True
-                CONVERSATION_STATE_STORE[conversation_id]["unreadCount"] = CONVERSATION_STATE_STORE[
-                                                                               conversation_id].get("unreadCount",
-                                                                                                    0) + 1
+            # Verifica duplicidade antes de adicionar
+            existing_ids = {m["message_id"] for m in CONVERSATION_STATE_STORE[conversation_id]["messages"]}
+            
+            if message_obj["message_id"] not in existing_ids:
+                CONVERSATION_STATE_STORE[conversation_id]["messages"].append(message_obj)
+                CONVERSATION_STATE_STORE[conversation_id]["lastUpdated"] = message_obj.get("timestamp",
+                                                                                           int(time.time())) * 1000
+                if message_obj.get("sender") == "cliente":
+                    CONVERSATION_STATE_STORE[conversation_id]["unread"] = True
+                    CONVERSATION_STATE_STORE[conversation_id]["unreadCount"] = CONVERSATION_STATE_STORE[
+                                                                                   conversation_id].get("unreadCount",
+                                                                                                        0) + 1
+            else:
+                print_warning(f"⚠️ Mensagem duplicada ignorada: {message_obj['message_id']}")
+                return # Sai se for duplicada para não salvar/broadcastar à toa
 
         save_to_redis(conversation_id)
 
@@ -1003,6 +1163,10 @@ async def process_and_broadcast_message(conversation_id: str, message_obj: Dict[
             "avatar_url": CONVERSATION_STATE_STORE[conversation_id].get("avatar_url"),
             "unreadCount": CONVERSATION_STATE_STORE[conversation_id].get("unreadCount", 0)
         })
+
+        # 📸 Se não tem avatar e temos instance_name, agenda busca em background
+        if not CONVERSATION_STATE_STORE[conversation_id].get("avatar_url") and instance_name:
+            asyncio.create_task(fetch_profile_picture_background(conversation_id, instance_name))
 
     except Exception as e:
         print_error(f"Erro processando mensagem: {e}")
@@ -1022,7 +1186,7 @@ async def sync_tenant_history(instance_name: str, api_token: str, tenant_id: str
 
                 # 1. Busca Mensagens (Aumentei o limite para pegar mais contexto)
                 # Vamos usar as mensagens para descobrir nomes que não estão na lista de contatos
-                msgs_resp = await client.post(f"{EVO_URL}/chat/findMessages/{EVO_INSTANCE}", headers=headers,
+                msgs_resp = await client.post(f"{EVO_URL}/chat/findMessages/{instance_name}", headers=headers,
                                               json={"limit": 500, "page": 1})
                 messages_data = msgs_resp.json().get("messages", {}).get("records",
                                                                          []) if msgs_resp.status_code == 200 else []
@@ -1085,7 +1249,7 @@ async def sync_tenant_history(instance_name: str, api_token: str, tenant_id: str
                         })
 
                 # 2. Busca Contatos
-                contacts_resp = await client.post(f"{EVO_URL}/chat/findContacts/{EVO_INSTANCE}", headers=headers,
+                contacts_resp = await client.post(f"{EVO_URL}/chat/findContacts/{instance_name}", headers=headers,
                                                   json={})
                 contacts = contacts_resp.json() if contacts_resp.status_code == 200 else []
 
@@ -1104,16 +1268,35 @@ async def sync_tenant_history(instance_name: str, api_token: str, tenant_id: str
                         final_name = f"+{final_name}"
 
                     processed_msgs = messages_by_jid.get(jid, [])
-                    processed_msgs.sort(key=lambda x: x["timestamp"])
-
-                    CONVERSATION_STATE_STORE[jid] = {
-                        "name": final_name,
-                        "avatar_url": contact.get("profilePicUrl") or "",
-                        "messages": processed_msgs,
-                        "unread": False,
-                        "unreadCount": 0,
-                        "lastUpdated": int(time.time()) * 1000
-                    }
+                    
+                    # --- LÓGICA DELTA (OTIMIZAÇÃO) ---
+                    if jid in CONVERSATION_STATE_STORE:
+                        old_msgs = CONVERSATION_STATE_STORE[jid].get("messages", [])
+                        old_ids = {m["message_id"] for m in old_msgs}
+                        
+                        # Filtra novas
+                        new_msgs = [m for m in processed_msgs if m["message_id"] not in old_ids]
+                        
+                        if new_msgs:
+                            final_msgs = old_msgs + new_msgs
+                            final_msgs.sort(key=lambda x: x["timestamp"])
+                            CONVERSATION_STATE_STORE[jid]["messages"] = final_msgs
+                            CONVERSATION_STATE_STORE[jid]["lastUpdated"] = final_msgs[-1]["timestamp"] * 1000
+                        
+                        # Atualiza metadados sempre (pode ter mudado foto/nome)
+                        CONVERSATION_STATE_STORE[jid]["name"] = final_name
+                        CONVERSATION_STATE_STORE[jid]["avatar_url"] = contact.get("profilePicUrl") or ""
+                        
+                    else:
+                        processed_msgs.sort(key=lambda x: x["timestamp"])
+                        CONVERSATION_STATE_STORE[jid] = {
+                            "name": final_name,
+                            "avatar_url": contact.get("profilePicUrl") or "",
+                            "messages": processed_msgs,
+                            "unread": False,
+                            "unreadCount": 0,
+                            "lastUpdated": int(time.time()) * 1000
+                        }
 
                 # Adiciona conversas que existem nas mensagens mas não na lista de contatos
                 for jid, msgs in messages_by_jid.items():
@@ -1166,6 +1349,68 @@ async def startup_event():
     except Exception as e:
         print_error(f"Falha ao carregar IA: {e}")
 
+    # --- AUTO-CONFIGURAÇÃO DE WEBHOOK (CLOUD RUN) ---
+    public_url = os.getenv("PUBLIC_URL")
+    if public_url:
+        print_info(f"🌍 PUBLIC_URL detectada: {public_url}")
+        print_info("⚙️ Configurando webhook automaticamente...")
+        
+        try:
+            webhook_url = f"{public_url}/webhook/evolution"
+            # Remove trailing slash se houver duplicidade
+            webhook_url = webhook_url.replace("//webhook", "/webhook")
+            
+            headers = {
+                "apikey": EVO_TOKEN,
+                "Content-Type": "application/json"
+            }
+            
+            webhook_config = {
+                "webhook": {
+                    "enabled": True,
+                    "url": webhook_url,
+                    "webhook_by_events": False,
+                    "webhook_base64": False,
+                    "events": [
+                        "QRCODE_UPDATED",
+                        "MESSAGES_UPSERT",
+                        "MESSAGES_UPDATE",
+                        "MESSAGES_DELETE",
+                        "SEND_MESSAGE",
+                        "CONNECTION_UPDATE"
+                    ]
+                }
+            }
+            
+            # Usa httpx para fazer a requisição async
+            async with httpx.AsyncClient() as client:
+                # Primeiro busca instâncias se EVO_INSTANCE não estiver definido
+                target_instance = EVO_INSTANCE
+                if not target_instance:
+                    resp = await client.get(f"{EVO_URL}/instance/fetchInstances", headers=headers)
+                    if resp.status_code == 200:
+                        instances = resp.json()
+                        if instances:
+                            target_instance = instances[0].get("instance", {}).get("instanceName") or instances[0].get("name")
+                
+                if target_instance:
+                    resp = await client.post(
+                        f"{EVO_URL}/webhook/set/{target_instance}",
+                        headers=headers,
+                        json=webhook_config,
+                        timeout=10.0
+                    )
+                    
+                    if resp.status_code in [200, 201]:
+                        print_success(f"✅ Webhook configurado para: {webhook_url}")
+                    else:
+                        print_error(f"❌ Falha ao configurar webhook: {resp.text}")
+                else:
+                    print_warning("⚠️ Nenhuma instância encontrada para configurar webhook.")
+                    
+        except Exception as e:
+            print_error(f"❌ Erro na auto-configuração do webhook: {e}")
+
 
 # --- Auth ---
 @app.post("/token")
@@ -1183,18 +1428,24 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 # --- WebSocket ---
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    print(f"🔌 Nova conexão WebSocket recebida: {websocket.client}")
     await manager.connect(websocket)
+    print(f"✅ WebSocket aceito e conectado!")
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
+        print(f"🔴 WebSocket desconectado")
         manager.disconnect(websocket)
 
 
 # --- Instância ---
 @app.get("/evolution/instance/status")
 async def get_instance_status(current_user: User = Depends(get_current_active_user)):
-    url = f"{EVO_URL}/instance/connectionState/{EVO_INSTANCE}"
+    if not current_user.tenant or not current_user.tenant.instance_name:
+        raise HTTPException(status_code=400, detail="Instância não configurada")
+    
+    url = f"{EVO_URL}/instance/connectionState/{current_user.tenant.instance_name}"
     headers = {"apikey": EVO_TOKEN}
     try:
         async with httpx.AsyncClient() as client:
@@ -1319,10 +1570,350 @@ async def create_and_get_qr(request: InstanceCreateRequest = None,
 
 @app.delete("/evolution/instance/logout")
 async def logout_instance(current_user: User = Depends(get_current_active_user)):
+    if not current_user.tenant or not current_user.tenant.instance_name:
+        raise HTTPException(status_code=400, detail="Instância não configurada")
+    
     async with httpx.AsyncClient() as client:
-        await client.delete(f"{EVO_URL}/instance/logout/{EVO_INSTANCE}", headers={"apikey": EVO_TOKEN})
+        await client.delete(f"{EVO_URL}/instance/logout/{current_user.tenant.instance_name}", headers={"apikey": EVO_TOKEN})
     return {"status": "logged_out"}
 
+
+
+
+
+
+# --- Sync ---
+@app.post("/sync/initial_load")
+async def initial_load(current_user: User = Depends(get_current_active_user)):
+    """
+    Carga inicial LGPD-compliant com verificação de instância.
+    ⚠️ ATENÇÃO: Só carrega se NÃO houver conversas antigas!
+    """
+    if not current_user.tenant or not current_user.tenant.instance_name:
+        raise HTTPException(status_code=400, detail="Instância não configurada")
+    
+    instance_name = current_user.tenant.instance_name
+    api_token = current_user.tenant.instance_token or EVO_TOKEN
+    
+    # 🔒 VERIFICAÇÃO LGPD: Bloqueia se já tiver conversas (podem ser de outra instância!)
+    async with STATE_LOCK:
+        existing_count = len(CONVERSATION_STATE_STORE)
+    
+    if existing_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"⚠️ LGPD: {existing_count} conversas já carregadas! DELETE TUDO primeiro usando /conversations/clear_all para evitar misturar dados de diferentes WhatsApps!"
+        )
+    
+    print_warning(f"🔒 LGPD: Verificando instância {instance_name}...")
+    
+    # Verifica se a instância está conectada
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            status_resp = await client.get(
+                f"{EVO_URL}/instance/connectionState/{instance_name}",
+                headers={"apikey": api_token}
+            )
+            
+            print_info(f"Status code: {status_resp.status_code}")
+            
+            if status_resp.status_code == 404:
+                print_error(f"Instância {instance_name} não encontrada na Evolution API")
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Instância '{instance_name}' não existe. Verifique o nome da instância ou crie uma nova."
+                )
+            
+            if status_resp.status_code != 200:
+                error_text = status_resp.text
+                print_error(f"Erro ao verificar instância: {status_resp.status_code} - {error_text}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Evolution API retornou erro {status_resp.status_code}: {error_text}"
+                )
+            
+            status_data = status_resp.json()
+            state = status_data.get("state", status_data.get("instance", {}).get("state"))
+            
+            print_info(f"Estado da instância: {state}")
+            
+            if state != "open":
+                print_warning(f"WhatsApp não conectado. Estado atual: {state}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"WhatsApp não conectado! Estado: {state}. Conecte o QR code primeiro."
+                )
+            
+            print_success(f"✅ Instância {instance_name} conectada e verificada")
+    
+    except httpx.HTTPError as e:
+        print_error(f"Erro de rede ao verificar instância: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro de conexão com Evolution API: {str(e)}")
+    
+    print_info(f"🚀 Carga inicial LGPD para {instance_name}...")
+    
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            headers = {"apikey": api_token}
+            
+            # 🔥 APENAS mensagens recentes (últimas 48h)
+            import time
+            two_days_ago = int(time.time()) - (48 * 3600)
+            
+            print_info(f"📥 Buscando mensagens das últimas 48h (desde {two_days_ago})...")
+            msgs_resp = await client.post(
+                f"{EVO_URL}/chat/findMessages/{instance_name}",
+                headers=headers,
+                json={
+                    "where": {
+                        "messageTimestamp": {"$gte": two_days_ago}
+                    },
+                    "limit": 200  # Mais mensagens para pegar mais conversas
+                }
+            )
+            
+            if msgs_resp.status_code != 200:
+                raise HTTPException(status_code=500, detail="Erro ao buscar mensagens")
+            
+            messages_data = msgs_resp.json().get("messages", {}).get("records", [])
+            print_info(f"📊 {len(messages_data)} mensagens recentes encontradas")
+            
+            # Agrupa por JID
+            conversations_map = {}
+            for m in messages_data:
+                key = m.get("key", {})
+                
+                # Extrai JID
+                possible_jids = []
+                if key.get("remoteJid"): possible_jids.append(key.get("remoteJid"))
+                if key.get("remoteJidAlt"): possible_jids.append(key.get("remoteJidAlt"))
+                
+                # Filtra JIDs válidos
+                valid_jids = [j for j in possible_jids if "@s.whatsapp.net" in j and "232" not in j[:3]]
+                
+                if not valid_jids:
+                    continue
+                
+                jid = min(valid_jids, key=len)  # Menor JID (phone number)
+                
+                # Filtros
+                if "@g.us" in jid or "status@broadcast" in jid:
+                    continue
+                
+                number = jid.split('@')[0]
+                if not number.isdigit() or len(number) < 10 or len(number) > 15:
+                    continue
+                
+                # REMOVIDO FILTRO DE APENAS BRASILEIROS (554)
+                # if not number.startswith('554'):
+                #     continue
+                
+                # Adiciona à conversa
+                if jid not in conversations_map:
+                    conversations_map[jid] = []
+                
+                # Extrai conteúdo
+                msg_content = m.get("message", {})
+                content = (
+                    msg_content.get("conversation") or
+                    msg_content.get("extendedTextMessage", {}).get("text") or
+                    msg_content.get("imageMessage", {}).get("caption")
+                )
+                
+                if not content:
+                    if "imageMessage" in msg_content:
+                        content = "📷 [Imagem]"
+                    elif "audioMessage" in msg_content:
+                        content = "🎤 [Áudio]"
+                    elif "videoMessage" in msg_content:
+                        content = "🎥 [Vídeo]"
+                    elif "documentMessage" in msg_content:
+                        content = "📄 [Documento]"
+                    elif "stickerMessage" in msg_content:
+                        content = "👾 [Figurinha]"
+                
+                if content:
+                    conversations_map[jid].append({
+                        "content": content,
+                        "sender": "vendedor" if key.get("fromMe") else "cliente",
+                        "timestamp": m.get("messageTimestamp"),
+                        "message_id": key.get("id"),
+                        "pushName": m.get("pushName", "")
+                    })
+            
+            # Limita a 20 conversas mais ativas
+            sorted_jids = sorted(
+                conversations_map.keys(),
+                key=lambda j: len(conversations_map[j]),
+                reverse=True
+            )[:20]
+            
+            print_info(f"📊 Carregando {len(sorted_jids)} conversas com mensagens recentes...")
+            
+            loaded_count = 0
+            async with STATE_LOCK:
+                for jid in sorted_jids:
+                    try:
+                        msgs = conversations_map[jid]
+                        number = jid.split('@')[0]
+                        
+                        # Ordena e limita a 40
+                        msgs.sort(key=lambda x: x["timestamp"])
+                        msgs = msgs[-40:]  # Últimas 40
+                        
+                        # Nome (pega do pushName da última mensagem)
+                        name = None
+                        for msg in reversed(msgs):
+                            if msg.get("pushName"):
+                                name = msg["pushName"]
+                                break
+                        
+                        if not name:
+                            name = f"+{number}"
+                        
+                        # Remove pushName das mensagens
+                        for msg in msgs:
+                            msg.pop("pushName", None)
+                        
+                        # Salva no store
+                        CONVERSATION_STATE_STORE[jid] = {
+                            "name": name,
+                            "avatar_url": "",  # Não buscar foto para ser mais rápido
+                            "messages": msgs,
+                            "unread": False,
+                            "unreadCount": 0,
+                            "lastUpdated": msgs[-1]["timestamp"] * 1000 if msgs else int(time.time() * 1000)
+                        }
+                        
+                        save_to_redis(jid)
+                        loaded_count += 1
+                        print_success(f"✅ {name} ({number}): {len(msgs)} mensagens")
+                    
+                    except Exception as e:
+                        print_error(f"❌ Erro ao processar {jid}: {e}")
+                        continue
+            
+            print_success(f"🎉 {loaded_count} conversas recentes carregadas!")
+            return {
+                "status": "success",
+                "loaded": loaded_count,
+                "period": "últimas 48 horas"
+            }
+    
+    except Exception as e:
+        print_error(f"❌ Erro na carga inicial: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/sync/active_conversations")
+async def sync_active_conversations(current_user: User = Depends(get_current_active_user)):
+    """
+    Sincroniza APENAS conversas que já existem no Redis/memória.
+    Evita pegar TODOS os contatos da Evolution API.
+    """
+    if not current_user.tenant or not current_user.tenant.instance_name:
+        raise HTTPException(status_code=400, detail="Instância não configurada")
+    
+    instance_name = current_user.tenant.instance_name
+    api_token = current_user.tenant.instance_token or EVO_TOKEN
+    
+    # Pega apenas JIDs que já existem
+    existing_jids = []
+    async with STATE_LOCK:
+        existing_jids = [jid for jid in CONVERSATION_STATE_STORE.keys() if "@s.whatsapp.net" in jid]
+    
+    if not existing_jids:
+        return {"status": "success", "message": "Nenhuma conversa ativa para sincronizar"}
+    
+    print_info(f"🔄 Sincronizando {len(existing_jids)} conversas ativas...")
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = {"apikey": api_token}
+            
+            for jid in existing_jids:
+                try:
+                    # Busca mensagens desse JID específico
+                    number = jid.split('@')[0]
+                    resp = await client.post(
+                        f"{EVO_URL}/chat/findMessages/{instance_name}",
+                        headers=headers,
+                        json={"where": {"key": {"remoteJid": jid}}, "limit": 50}
+                    )
+                    
+                    if resp.status_code == 200:
+                        messages_data = resp.json().get("messages", {}).get("records", [])
+                        
+                        if messages_data:
+                            async with STATE_LOCK:
+                                old_msgs = CONVERSATION_STATE_STORE[jid].get("messages", [])
+                                old_ids = {m["message_id"] for m in old_msgs}
+                                
+                                # Processa novas mensagens
+                                new_msgs = []
+                                for m in messages_data:
+                                    msg_id = m.get("key", {}).get("id")
+                                    if msg_id not in old_ids:
+                                        content = (
+                                            m.get("message", {}).get("conversation") or
+                                            m.get("message", {}).get("extendedTextMessage", {}).get("text") or
+                                            "📷 [Mídia]"
+                                        )
+                                        new_msgs.append({
+                                            "content": content,
+                                            "sender": "vendedor" if m.get("key", {}).get("fromMe") else "cliente",
+                                            "timestamp": m.get("messageTimestamp"),
+                                            "message_id": msg_id
+                                        })
+                                
+                                if new_msgs:
+                                    final_msgs = old_msgs + new_msgs
+                                    final_msgs.sort(key=lambda x: x["timestamp"])
+                                    CONVERSATION_STATE_STORE[jid]["messages"] = final_msgs
+                                    save_to_redis(jid)
+                                    print_success(f"✅ {number}: +{len(new_msgs)} mensagens")
+                
+                except Exception as e:
+                    print_error(f"Erro ao sincronizar {jid}: {e}")
+                    continue
+        
+        return {"status": "success", "message": f"{len(existing_jids)} conversas sincronizadas"}
+    
+    except Exception as e:
+        print_error(f"Erro geral na sincronização: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/conversations/clear_all")
+async def clear_all_conversations(current_user: User = Depends(get_current_active_user)):
+    """
+    Limpa TODAS as conversas ao trocar de instância/número.
+    ⚠️ LGPD: Use isto ao trocar de cliente/instância!
+    """
+    print_warning("🗑️ Limpando TODAS as conversas (LGPD)...")
+    
+    # Limpa memória
+    async with STATE_LOCK:
+        cleared_memory = len(CONVERSATION_STATE_STORE)
+        CONVERSATION_STATE_STORE.clear()
+        print_success(f"✅ {cleared_memory} conversas removidas da memória")
+    
+    # Limpa Redis
+    cleared_redis = 0
+    if redis_client:
+        try:
+            keys = redis_client.keys("chat:*")
+            for key in keys:
+                redis_client.delete(key)
+            cleared_redis = len(keys)
+            print_success(f"✅ {cleared_redis} conversas removidas do Redis")
+        except Exception as e:
+            print_error(f"Erro ao limpar Redis: {e}")
+    
+    return {
+        "status": "success",
+        "message": f"Backend limpo: {cleared_memory} memória + {cleared_redis} Redis",
+        "frontend_action_required": "Limpe localStorage do navegador: F12 > Application > Local Storage > Clear All"
+    }
 
 # --- Chat ---
 @app.get("/conversations")
@@ -1333,54 +1924,47 @@ async def get_all_conversations(
         return {"status": "error", "conversations": []}
 
     formatted = []
-    seen_jids = set()
-
-    if redis_client:
-        try:
-            pattern = "chat:*"
-            for key in redis_client.scan_iter(match=pattern, count=100):
-                try:
-                    if "@" not in key and len(key.split(":")) < 2: continue
-
-                    data_json = redis_client.get(key)
-                    if data_json:
-                        data = json.loads(data_json)
-                        parts = key.split("chat:")
-                        if len(parts) > 1:
-                            jid = parts[1]
-                        else:
-                            continue
-
-                        if "@g.us" in jid: continue
-                        if "status@broadcast" in jid: continue
-
-                        # Pega a última mensagem (se houver)
-                        last_msg = ""
-                        messages = data.get("messages", [])
-                        if messages:
-                            last_msg = messages[-1]["content"]
-
-                        # --- REMOVIDO O FILTRO DE MENSAGENS VAZIAS ---
-                        # if not messages: continue  <-- ESTA LINHA ESTAVA MATANDO SUA LISTA
-
-                        formatted.append({
-                            "id": jid,
-                            "name": data.get("name", jid.split('@')[0]),
-                            "avatar_url": data.get("avatar_url", ""),
-                            "lastMessage": last_msg,
-                            "unread": data.get("unread", False),
-                            "unreadCount": data.get("unreadCount", 0),
-                            "lastUpdated": data.get("lastUpdated", 0)
-                        })
-                        seen_jids.add(jid)
-                except Exception:
+    
+    # 🚀 USA MEMÓRIA EM VEZ DE REDIS SCAN (muito mais rápido!)
+    async with STATE_LOCK:
+        for jid, data in CONVERSATION_STATE_STORE.items():
+            try:
+                # Filtros
+                if "@g.us" in jid or "status@broadcast" in jid:
                     continue
-        except Exception as e:
-            print_error(f"Erro Redis Scan: {e}")
-
+                
+                number_part = jid.split('@')[0]
+                
+                # Ignora números inválidos
+                if not number_part.isdigit():
+                    continue
+                if len(number_part) < 10 or len(number_part) > 15:
+                    continue
+                
+                # REMOVIDO FILTRO DE APENAS BRASILEIROS (554)
+                # if not number_part.startswith('554'):
+                #     continue
+                
+                # Pega a última mensagem
+                messages = data.get("messages", [])
+                last_msg = messages[-1]["content"] if messages else ""
+                
+                formatted.append({
+                    "id": jid,
+                    "name": data.get("name", number_part),
+                    "avatar_url": data.get("avatar_url", ""),
+                    "lastMessage": last_msg,
+                    "unread": data.get("unread", False),
+                    "unreadCount": data.get("unreadCount", 0),
+                    "lastUpdated": data.get("lastUpdated", 0)
+                })
+            except Exception as e:
+                print_error(f"Erro ao processar conversa {jid}: {e}")
+                continue
+    
     # Ordena pela data
     formatted.sort(key=lambda x: x["lastUpdated"], reverse=True)
-
+    
     return {"status": "success", "conversations": formatted}
 
 # 🟢 ROTA INTELIGENTE DE MENSAGENS (COM SUPORTE A MÍDIA E BUSCA SOB DEMANDA)
@@ -1435,13 +2019,12 @@ async def get_conversation_messages(jid: str, current_user: User = Depends(get_c
     # 3. Se vazio ou pouco, busca na API
     print_info(f"🔍 Buscando histórico PROFUNDO para: {real_jid}")
     try:
-        # Usa a instância do usuário se disponível, senão fallback para global
-        instance_name = EVO_INSTANCE
-        api_token = EVO_TOKEN
+        # Sempre usa a instância do tenant (multi-tenant)
+        if not current_user.tenant or not current_user.tenant.instance_name:
+            raise HTTPException(status_code=400, detail="Instância não configurada")
         
-        if current_user.tenant and current_user.tenant.instance_name:
-            instance_name = current_user.tenant.instance_name
-            api_token = current_user.tenant.instance_token or EVO_TOKEN
+        instance_name = current_user.tenant.instance_name
+        api_token = current_user.tenant.instance_token or EVO_TOKEN
             
         url = f"{EVO_URL}/chat/findMessages/{instance_name}"
         headers = {"apikey": api_token}
@@ -1583,6 +2166,66 @@ async def send_message(request: MessageSendRequest, background_tasks: Background
     return {"status": "success"}
 
 
+
+@app.delete("/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str, current_user: User = Depends(get_current_active_user)):
+    if "@" not in conversation_id and conversation_id.isdigit():
+        conversation_id = f"{conversation_id}@s.whatsapp.net"
+    
+    print_info(f"🗑️ Deletando conversa: {conversation_id}")
+    
+    # Remove da memória
+    async with STATE_LOCK:
+        if conversation_id in CONVERSATION_STATE_STORE:
+            del CONVERSATION_STATE_STORE[conversation_id]
+    
+    # Remove do Redis
+    if redis_client:
+        try:
+            redis_client.delete(f"chat:{conversation_id}")
+        except Exception as e:
+            print_error(f"Erro ao deletar do Redis: {e}")
+            
+    return {"status": "success"}
+
+@app.post("/conversations/{jid:path}/mark_read")
+async def mark_conversation_as_read(jid: str, current_user: User = Depends(get_current_active_user)):
+    """
+    Marca todas as mensagens de uma conversa como lidas.
+    Remove a bolinha de 'não lido' da conversa.
+    """
+    # Normaliza o JID
+    if "@" not in jid and jid.isdigit():
+        target_jid = f"{jid}@s.whatsapp.net"
+    else:
+        target_jid = jid
+    
+    real_jid = find_existing_conversation_jid(target_jid) or target_jid
+    print_info(f"📖 Marcando conversa como lida: {real_jid}")
+    
+    async with STATE_LOCK:
+        if real_jid in CONVERSATION_STATE_STORE:
+            # Marca conversa como lida
+            CONVERSATION_STATE_STORE[real_jid]["unread"] = False
+            CONVERSATION_STATE_STORE[real_jid]["unread_count"] = 0
+            
+            # Salva no Redis
+            save_to_redis(real_jid)
+            
+            print_success(f"✅ Conversa {real_jid} marcada como lida")
+            
+            # Notifica via WebSocket
+            await manager.broadcast({
+                "type": "conversation_read",
+                "conversation_id": real_jid
+            })
+            
+            return {"status": "success", "conversation_id": real_jid}
+        else:
+            print_warning(f"⚠️  Conversa {real_jid} não encontrada")
+            return {"status": "not_found", "conversation_id": real_jid}
+
+
 @app.post("/conversations/start_new")
 async def start_new_conversation(request: NewConversationRequest, background_tasks: BackgroundTasks,
                                  current_user: User = Depends(get_current_active_user)):
@@ -1598,26 +2241,96 @@ async def start_new_conversation(request: NewConversationRequest, background_tas
     if not success: raise HTTPException(status_code=500, detail="Falha ao enviar mensagem inicial")
 
     # Registra a mensagem e a conversa
-    msg_obj = {
-        "content": request.initial_message, "sender": "vendedor",
-        "timestamp": int(time.time()), "message_id": f"sent_{int(time.time())}"
-    }
-
-    # Garante que a conversa exista no estado local
     async with STATE_LOCK:
         if jid not in CONVERSATION_STATE_STORE:
-             CONVERSATION_STATE_STORE[jid] = {
-                "name": request.recipient_number,
-                "messages": [],
-                "unread": False,
-                "unreadCount": 0,
-                "lastUpdated": int(time.time()) * 1000,
-                "avatar_url": ""
-            }
+            CONVERSATION_STATE_STORE[jid] = {"messages": [], "name": number, "unread": False}
+        
+        # Adiciona a mensagem enviada
+        CONVERSATION_STATE_STORE[jid]["messages"].append({
+            "content": request.initial_message,
+            "sender": "vendedor",
+            "timestamp": int(time.time()),
+            "message_id": f"sent_{int(time.time())}"
+        })
 
-    background_tasks.add_task(process_and_broadcast_message, jid, msg_obj)
     return {"status": "success", "conversation_id": jid}
 
+# --- SEARCH ENDPOINT ---
+from thefuzz import process, fuzz
+
+@app.get("/conversations/search")
+async def search_conversations(q: str, limit: int = 10, current_user: User = Depends(get_current_active_user)):
+    if not q:
+        return []
+    
+    results = []
+    query = q.lower()
+    
+    # Snapshot dos dados para busca
+    conversations = []
+    async with STATE_LOCK:
+        for jid, data in CONVERSATION_STATE_STORE.items():
+            conversations.append({
+                "id": jid,
+                "name": data.get("name", jid.split('@')[0]),
+                "messages": data.get("messages", [])
+            })
+            
+    # 1. Busca por Nome (Fuzzy)
+    names_dict = {c["id"]: c["name"] for c in conversations}
+    matched_names = process.extractBests(query, names_dict, scorer=fuzz.partial_ratio, score_cutoff=65, limit=limit)
+    
+    matched_ids = set()
+    for name, score, jid in matched_names:
+        matched_ids.add(jid)
+        results.append({
+            "id": jid,
+            "name": name,
+            "match_type": "name",
+            "score": score,
+            "snippet": None,
+            "timestamp": int(time.time())
+        })
+        
+    # 2. Busca por Conteúdo (Mensagens)
+    if len(results) < limit:
+        for c in conversations:
+            if c["id"] in matched_ids:
+                continue
+            
+            for msg in reversed(c["messages"]):
+                content = msg.get("content", "")
+                if not content: continue
+                
+                if query in content.lower():
+                    results.append({
+                        "id": c["id"],
+                        "name": c["name"],
+                        "match_type": "message",
+                        "score": 100,
+                        "snippet": content[:60] + "..." if len(content) > 60 else content,
+                        "timestamp": msg.get("timestamp", 0)
+                    })
+                    matched_ids.add(c["id"])
+                    break
+    
+    # Preenche dados faltantes
+    final_results = []
+    for r in results:
+        original = next((c for c in conversations if c["id"] == r["id"]), None)
+        if original:
+            last_msg = original["messages"][-1] if original["messages"] else None
+            last_msg_content = last_msg.get("content", "") if last_msg else ""
+            
+            final_results.append({
+                **r,
+                "avatar_url": CONVERSATION_STATE_STORE.get(r["id"], {}).get("avatar_url", ""),
+                "unreadCount": 0,
+                "lastMessage": r["snippet"] or last_msg_content,
+                "lastUpdated": r.get("timestamp") or (last_msg.get("timestamp") if last_msg else 0) * 1000
+            })
+            
+    return final_results
 
 class ReactionRequest(BaseModel):
     conversation_id: str
@@ -1908,6 +2621,25 @@ async def generate_ai_suggestion(request: AIQueryRequest, current_user: User = D
             client_data={}
         )
         print_success(f"✅ [API] Sugestão gerada com sucesso")
+        # Calcular Tokens (Estimativa: 1 token ~= 4 caracteres)
+        input_tokens = len(user_query) // 4
+        output_tokens = len(str(result)) // 4
+        total_tokens = input_tokens + output_tokens
+        
+        # Atualizar Banco de Dados
+        db = database.SessionLocal()
+        try:
+            db.query(database.UserDB).filter(database.UserDB.username == current_user.username).update(
+                {"tokens_used": database.UserDB.tokens_used + total_tokens}
+            )
+            db.commit()
+            print_success(f"💰 Tokens contabilizados: {total_tokens} (Total User: {current_user.tokens_used + total_tokens})")
+        except Exception as e:
+            print_error(f"Erro ao salvar tokens: {e}")
+            db.rollback()
+        finally:
+            db.close()
+
         return result
     except Exception as e:
         print_error(f"❌ [API] Erro ao gerar sugestão: {e}")
@@ -1915,14 +2647,63 @@ async def generate_ai_suggestion(request: AIQueryRequest, current_user: User = D
         raise HTTPException(status_code=500, detail=f"Erro ao processar IA: {str(e)}")
 
 
+from services.media_service import media_service
+
+async def process_media_and_update(jid: str, message_id: str, media_type: str):
+    """
+    Processa mídia em background e atualiza a mensagem com a transcrição/descrição.
+    """
+    try:
+        # Usa as globais EVO_INSTANCE, EVO_URL, EVO_TOKEN
+        transcription = await media_service.process_media(
+            message_id, 
+            EVO_INSTANCE, 
+            EVO_URL, 
+            EVO_TOKEN, 
+            media_type
+        )
+        
+        if transcription:
+            prefix = "🎤 [Áudio]" if "audio" in media_type else "📷 [Imagem]" if "image" in media_type else "🎥 [Vídeo]"
+            new_content = f"{prefix} {transcription}"
+            
+            async with STATE_LOCK:
+                if jid in CONVERSATION_STATE_STORE:
+                    messages = CONVERSATION_STATE_STORE[jid].get("messages", [])
+                    for msg in messages:
+                        if msg["message_id"] == message_id:
+                            msg["content"] = new_content
+                            print_success(f"✏️ Mensagem {message_id} atualizada com transcrição.")
+                            
+                            # Broadcast Update (Frontend agora aceita update se ID existir)
+                            await manager.broadcast({
+                                "type": "new_message",
+                                "conversation_id": jid,
+                                "message": msg,
+                                "name": CONVERSATION_STATE_STORE[jid].get("name"),
+                                "avatar_url": CONVERSATION_STATE_STORE[jid].get("avatar_url"),
+                                "unreadCount": CONVERSATION_STATE_STORE[jid].get("unreadCount", 0)
+                            })
+                            break
+            
+            save_to_redis(jid)
+            
+    except Exception as e:
+        print_error(f"Erro ao atualizar transcrição: {e}")
+
 @app.post("/webhook/evolution")
 async def webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         body = await request.json()
-        # print_info(f"🔍 Webhook Payload Completo: {json.dumps(body, indent=2)}")
+        print_info(f"🔍 Webhook Payload Recebido: {json.dumps(body, indent=2)}")
         event = body.get("event")
         data = body.get("data")
-        if not data: return {"status": "no_data"}
+        
+        print_info(f"⚡ Evento Webhook: {event}")
+        
+        if not data: 
+            print_warning("⚠️ Webhook sem dados!")
+            return {"status": "no_data"}
 
         if event == "messages.upsert":
             msg_data = data.get("message") or {}
@@ -1930,40 +2711,30 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
             # 🎭 Processar Reações
             if "reactionMessage" in msg_data:
+                # ... (código de reação mantido igual, omitido aqui para brevidade se não for mudar) ...
+                # Vou manter o bloco original de reação se ele não for substituído pelo diff
                 reaction_data = msg_data["reactionMessage"]
                 target_msg_id = reaction_data.get("key", {}).get("id")
                 emoji = reaction_data.get("text", "")
-                jid = key.get("remoteJidAlt") or key.get("remoteJid")
+                jid_raw = key.get("remoteJidAlt") or key.get("remoteJid")
+                jid = normalize_jid(jid_raw)  # Normalizar JID
                 from_me = key.get("fromMe", False)
                 
                 if target_msg_id and jid:
                     who = "vendedor" if from_me else "cliente"
                     print_info(f"👍 Webhook: Reação '{emoji}' de {who} na mensagem {target_msg_id}")
                     
-                    # Atualiza a mensagem com a reação
                     async with STATE_LOCK:
                         if jid in CONVERSATION_STATE_STORE:
                             messages = CONVERSATION_STATE_STORE[jid].get("messages", [])
                             for msg in messages:
                                 if msg.get("message_id") == target_msg_id:
-                                    if "reactions" not in msg:
-                                        msg["reactions"] = []
-                                    
-                                    # Remove reação anterior da mesma pessoa
+                                    if "reactions" not in msg: msg["reactions"] = []
                                     msg["reactions"] = [r for r in msg["reactions"] if r.get("from") != who]
-                                    
-                                    # Adiciona nova reação (se não for vazia)
                                     if emoji:
-                                        msg["reactions"].append({
-                                            "emoji": emoji,
-                                            "from": who
-                                        })
+                                        msg["reactions"].append({"emoji": emoji, "from": who})
                                         print_success(f"✅ Reação adicionada à mensagem {target_msg_id}")
-                                    
-                                    # Salva no Redis
                                     save_to_redis(jid)
-                                    
-                                    # Broadcasta atualização via WebSocket
                                     await manager.broadcast({
                                         "type": "message_reaction",
                                         "conversation_id": jid,
@@ -1972,54 +2743,84 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
                                         "from": who
                                     })
                                     break
-                
                 return {"status": "ok"}
 
-            # Ignora mensagens enviadas por mim
-            if not key.get("fromMe"):
-                # 🔧 FIX: WhatsApp Business usa @lid (Local ID) temporário
-                # Precisamos usar remoteJidAlt que contém o número real
-                jid = key.get("remoteJidAlt") or key.get("remoteJid")
+            # 🚨 REMOVIDO FILTRO 'fromMe' PARA DEBUG E SYNC COMPLETO
+            # if not key.get("fromMe"):
+            
+            # Prioriza JID padrão (@s.whatsapp.net) e evita LIDs (que são números longos)
+            # Estratégia: Coleta todos os JIDs possíveis e escolhe o menor (Phone Number < LID)
+            possible_jids = []
+            
+            if key.get("remoteJid"): possible_jids.append(key.get("remoteJid"))
+            if key.get("remoteJidAlt"): possible_jids.append(key.get("remoteJidAlt"))
+            if key.get("participant"): possible_jids.append(key.get("participant"))
+            
+            # Filtra apenas JIDs de usuário válidos
+            valid_jids = [
+                j for j in possible_jids 
+                if j and "@s.whatsapp.net" in j and "232" not in j[:3] # 232 é prefixo comum de LID
+            ]
+            
+            if valid_jids:
+                # Escolhe o menor (número de telefone é menor que LID)
+                jid_raw = min(valid_jids, key=len)
+            else:
+                # Fallback
+                jid_raw = key.get("remoteJid") or key.get("remoteJidAlt")
 
-                # Extração Robusta de Conteúdo (Igual ao load_history)
-                content = (
-                    msg_data.get("conversation") or
-                    msg_data.get("extendedTextMessage", {}).get("text") or
-                    msg_data.get("imageMessage", {}).get("caption")
-                )
+            jid = normalize_jid(jid_raw)
+            from_me = key.get("fromMe", False)
+            
+            print_info(f"📨 Webhook Upsert: JID={jid} (raw={jid_raw}) FromMe={from_me} ID={key.get('id')}")
 
-                # Fallbacks para mídia sem legenda
-                if not content:
-                    if "imageMessage" in msg_data:
-                        content = "📷 [Imagem]"
-                    elif "audioMessage" in msg_data:
-                        content = "🎤 [Áudio]"
-                    elif "videoMessage" in msg_data:
-                        content = "🎥 [Vídeo]"
-                    elif "documentMessage" in msg_data:
-                        content = "📄 [Documento]"
-                    elif "stickerMessage" in msg_data:
-                        content = "👾 [Figurinha]"
+            content = (
+                msg_data.get("conversation") or
+                msg_data.get("extendedTextMessage", {}).get("text") or
+                msg_data.get("imageMessage", {}).get("caption")
+            )
 
-                if jid and content:
-                    # Usa timestamp da mensagem se disponível
-                    ts = data.get("messageTimestamp") or int(time.time())
+            media_type = None
+            # Fallbacks para mídia sem legenda
+            if not content:
+                if "imageMessage" in msg_data:
+                    content = "📷 [Imagem]"
+                    media_type = "image"
+                elif "audioMessage" in msg_data:
+                    content = "🎤 [Áudio]"
+                    media_type = "audio"
+                elif "videoMessage" in msg_data:
+                    content = "🎥 [Vídeo]"
+                    media_type = "video"
+                elif "documentMessage" in msg_data:
+                    content = "📄 [Documento]"
+                elif "stickerMessage" in msg_data:
+                    content = "👾 [Figurinha]"
 
-                    msg_obj = {
-                        "content": content,
-                        "sender": "cliente",
-                        "timestamp": ts,
-                        "message_id": key.get("id")
-                    }
+            if jid and content:
+                ts = data.get("messageTimestamp") or int(time.time())
+                
+                # Determina quem enviou
+                sender = "vendedor" if from_me else "cliente"
+                
+                msg_obj = {
+                    "content": content,
+                    "sender": sender,
+                    "timestamp": ts,
+                    "message_id": key.get("id")
+                }
 
-                    print_info(f"📩 Webhook: Mensagem recebida de {jid}: {content}")
-                    background_tasks.add_task(process_and_broadcast_message, jid, msg_obj)
+                print_info(f"📩 Webhook Processando: {sender} -> {jid}: {content[:30]}...")
+                background_tasks.add_task(process_and_broadcast_message, jid, msg_obj, instance_name)
+                
+                # 🧠 Se for mídia, processa em background
+                if media_type:
+                    background_tasks.add_task(process_media_and_update, jid, msg_obj["message_id"], media_type)
 
-                    # Se vier nome no webhook, atualiza!
-                    if data.get("pushName"):
-                        if jid in CONVERSATION_STATE_STORE:
-                            CONVERSATION_STATE_STORE[jid]["name"] = data.get("pushName")
-                            save_to_redis(jid)
+                if data.get("pushName"):
+                    if jid in CONVERSATION_STATE_STORE:
+                        CONVERSATION_STATE_STORE[jid]["name"] = data.get("pushName")
+                        save_to_redis(jid)
     except Exception as e:
         print_error(f"Webhook error: {e}")
         traceback.print_exc()

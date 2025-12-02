@@ -9,10 +9,10 @@ echo "🚀 DEPLOY DO BACKEND NO GOOGLE CLOUD RUN"
 echo "======================================================================"
 
 # Configurações
-PROJECT_ID="seu-projeto-id"  # ⚠️ ALTERE AQUI
-SERVICE_NAME="copilot-vendas-backend"
-REGION="southamerica-east1"  # São Paulo
-IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
+PROJECT_ID="gen-lang-client-0750608840"
+SERVICE_NAME="cosmos-backend"
+REGION="us-central1"
+IMAGE_NAME="gcr.io/${PROJECT_ID}/backend"
 
 echo ""
 echo "📋 Configurações:"
@@ -90,7 +90,8 @@ gcloud run deploy ${SERVICE_NAME} \
     --cpu 1 \
     --timeout 300 \
     --max-instances 10 \
-    --set-env-vars "EVOLUTION_API_URL=${EVOLUTION_API_URL},EVOLUTION_INSTANCE_NAME=${EVOLUTION_INSTANCE_NAME},EVOLUTION_API_KEY=${EVOLUTION_API_KEY},SECRET_KEY=${SECRET_KEY}"
+    --min-instances 1 \
+    --set-env-vars "EVOLUTION_API_URL=${EVOLUTION_API_URL},EVOLUTION_INSTANCE_NAME=${EVOLUTION_INSTANCE_NAME},EVOLUTION_API_KEY=${EVOLUTION_API_KEY},SECRET_KEY=${SECRET_KEY},DATABASE_URL=${DATABASE_URL},REDIS_URL=${REDIS_URL},CHROMA_SERVER_URL=${CHROMA_SERVER_URL}"
 
 if [ $? -ne 0 ]; then
     echo ""
@@ -103,6 +104,16 @@ SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} --region ${REGION} --
 
 echo ""
 echo "======================================================================"
+echo "🌍 CONFIGURANDO PUBLIC_URL"
+echo "======================================================================"
+echo "Definindo PUBLIC_URL=${SERVICE_URL}..."
+
+gcloud run services update ${SERVICE_NAME} \
+    --region ${REGION} \
+    --update-env-vars "PUBLIC_URL=${SERVICE_URL}"
+
+echo ""
+echo "======================================================================"
 echo "✅ DEPLOY CONCLUÍDO COM SUCESSO!"
 echo "======================================================================"
 echo ""
@@ -110,14 +121,12 @@ echo "🌐 URL do Backend: ${SERVICE_URL}"
 echo ""
 echo "📝 PRÓXIMOS PASSOS:"
 echo ""
-echo "1. Configure o webhook na Evolution API:"
-echo "   URL: ${SERVICE_URL}/webhook/evolution"
+echo "1. O webhook será configurado AUTOMATICAMENTE na inicialização!"
+echo "   (Verifique os logs do Cloud Run para confirmar)"
 echo ""
 echo "2. Atualize o frontend para usar esta URL:"
 echo "   API_BASE_URL = '${SERVICE_URL}'"
 echo "   WS_URL = '${SERVICE_URL}/ws' (use wss:// para HTTPS)"
-echo ""
-echo "3. Teste enviando uma mensagem do WhatsApp"
 echo ""
 echo "======================================================================"
 

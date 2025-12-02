@@ -14,13 +14,26 @@ from repositories.chroma_repository import ChromaConversationsRepository, get_co
 Esta é a Camada de Serviço (Service Layer).
 """
 
+from core.state import CONVERSATION_STATE_STORE
+
 class ConversationService:
     def __init__(self, repository: ChromaConversationsRepository = Depends(get_conversations_repository)):
         self.repository = repository
 
     async def get_all_conversations(self, skip: int, limit: int) -> List[Dict[str, Any]]:
         try:
-            return await self.repository.list_conversations(skip=skip, limit=limit)
+            # 🚀 OTIMIZAÇÃO: Lê direto da memória (Redis Cache)
+            # Converte dict para lista
+            all_convs = list(CONVERSATION_STATE_STORE.values())
+            
+            # Ordena por lastUpdated decrescente
+            all_convs.sort(key=lambda x: x.get("lastUpdated", 0), reverse=True)
+            
+            # Paginação
+            start = skip
+            end = skip + limit
+            return all_convs[start:end]
+            
         except Exception as e:
             print_error(f"❌ [Service] Erro ao listar conversas: {e}")
             traceback.print_exc()
@@ -30,13 +43,16 @@ class ConversationService:
             )
 
     async def get_messages_for_conversation(self, contact_id: str) -> List[Dict[str, Any]]:
+        # 🚀 OTIMIZAÇÃO: Lê direto da memória
+        if contact_id in CONVERSATION_STATE_STORE:
+            return CONVERSATION_STATE_STORE[contact_id].get("messages", [])
+        
+        # Fallback: Se não estiver na memória, tenta o repositório (raro)
         if not self.repository:
             raise HTTPException(status_code=503, detail="Repositório Chroma não inicializado.")
         try:
             messages = await self.repository.get_messages_by_contact(contact_id)
-            if not messages:
-                return []
-            return messages
+            return messages or []
         except Exception as e:
             print_error(f"❌ [Service] Erro ao buscar mensagens: {e}")
             traceback.print_exc()
@@ -54,6 +70,21 @@ class ConversationService:
         except Exception as e:
             print_error(f"❌ [Service] Erro ao salvar mensagem do webhook: {e}")
             traceback.print_exc()
+
+    async def delete_conversation(self, contact_id: str) -> bool:
+        """
+        Remove uma conversa da memória (CONVERSATION_STATE_STORE).
+        """
+        from core.state import STATE_LOCK
+        
+        async with STATE_LOCK:
+            if contact_id in CONVERSATION_STATE_STORE:
+                del CONVERSATION_STATE_STORE[contact_id]
+                print_success(f"🗑️ Conversa {contact_id} removida da memória.")
+                return True
+            else:
+                print_warning(f"⚠️ Conversa {contact_id} não encontrada na memória para exclusão.")
+                return False
 
     # --- 💡 CORREÇÃO LGPD: MOVIDO PARA DENTRO DA CLASSE 💡 ---
     async def delete_all_conversations(self):

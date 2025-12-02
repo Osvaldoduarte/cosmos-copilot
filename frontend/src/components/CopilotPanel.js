@@ -1,5 +1,5 @@
 // frontend/src/components/CopilotPanel.js
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useChat } from '../context/ChatContext';
 import VideoSuggestionCard from './VideoSuggestionCard';
 
@@ -17,12 +17,44 @@ function CopilotPanel() {
     conversations, activeConversationId,
     suggestions, isCopilotLoading, lastAnalyzedMessage, queryType,
     clearSuggestions, handleToggleCopilot, handleInternalQuery,
-    handleSendMessage // <--- 1. IMPORTAMOS A FUNÇÃO DE ENVIO AQUI
+    handleSendMessage, handleSuggestionRequest, // Added for drag-and-drop
+    isDragging // 🎯 Estado global de drag
   } = useChat();
 
   const [internalInput, setInternalInput] = useState('');
-  const [isExiting, setIsExiting] = useState(false);
   const [loadingText, setLoadingText] = useState('Consultando Cérebro...');
+
+  // 🎯 Drag-and-Drop State
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  // 🎯 Drag-and-Drop Handlers
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    // Só sai se realmente sair do panel (não de elementos filhos)
+    if (e.currentTarget === e.target) {
+      setIsDragOver(false);
+    }
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+
+    const messageText = e.dataTransfer.getData('text/plain');
+    if (messageText && activeConversationId && handleSuggestionRequest) {
+      // Envia para análise do Copilot
+      await handleSuggestionRequest(messageText, activeConversationId);
+    }
+  };
 
   React.useEffect(() => {
     if (!isCopilotLoading) return;
@@ -66,20 +98,22 @@ function CopilotPanel() {
     // 1. Envia a mensagem imediatamente
     await handleSendMessage(text);
 
-    // 2. Ativa a animação de saída
-    setIsExiting(true);
-
-    // 3. Aguarda o tempo da animação (400ms do CSS) antes de limpar os dados
+    // 2. Limpa sugestões após envio
     setTimeout(() => {
       clearSuggestions();
-      setIsExiting(false); // Reseta o estado local
     }, 400);
   };
 
   if (!activeChat) return null;
 
   return (
-    <div className="copilot-panel">
+    <div
+      className={`copilot-panel ${isDragOver ? 'drag-over' : ''}`}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
 
       {/* --- 1. HEADER (INPUT INTERNO) --- */}
       <div className="copilot-header">

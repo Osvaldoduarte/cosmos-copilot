@@ -9,6 +9,8 @@
     background: linear-gradient(180deg, #0f172a 0%, #020617 100%);
     color: #f8fafc;
     font-family: 'Inter', sans-serif;
+    position: relative;
+    /* Importante para conter o overlay absoluto */
 }
 
 /* --- HEADER --- */
@@ -34,8 +36,9 @@
     padding: 4px 10px;
     transition: all 0.3s;
 }
+
 .glass-input:focus-within {
-    border-color: #8b5cf6;
+    border-color: #3b82f6;
     background: rgba(139, 92, 246, 0.1);
 }
 
@@ -52,12 +55,15 @@
 .ai-send-btn {
     background: transparent;
     border: none;
-    color: #8b5cf6;
+    color: #3b82f6;
     cursor: pointer;
     display: flex;
     align-items: center;
 }
-.ai-send-btn:hover { color: #a78bfa; }
+
+.ai-send-btn:hover {
+    color: #60a5fa;
+}
 
 .close-btn {
     background: transparent;
@@ -65,14 +71,23 @@
     color: #64748b;
     cursor: pointer;
 }
-.close-btn:hover { color: #ef4444; }
 
-/* --- BODY --- */
+.close-btn:hover {
+    color: #ef4444;
+}
+
+/* --- BODY (Scrollável) --- */
 .copilot-body {
     flex: 1;
     overflow-y: auto;
     padding: 20px;
+    padding-bottom: 80px;
+    /* Espaço para o footer absoluto */
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
     position: relative;
+    /* Para posicionar elementos absolutos se necessário */
 }
 
 /* Loading Animation */
@@ -92,15 +107,26 @@
     width: 60px;
     height: 60px;
     border-radius: 50%;
-    background: radial-gradient(circle, #8b5cf6 0%, transparent 70%);
-    box-shadow: 0 0 30px #8b5cf6;
+    background: radial-gradient(circle, #3b82f6 0%, transparent 70%);
+    box-shadow: 0 0 30px #3b82f6;
     animation: pulseOrb 2s infinite ease-in-out;
 }
 
 @keyframes pulseOrb {
-    0% { transform: scale(0.8); opacity: 0.6; }
-    50% { transform: scale(1.2); opacity: 1; }
-    100% { transform: scale(0.8); opacity: 0.6; }
+    0% {
+        transform: scale(0.8);
+        opacity: 0.6;
+    }
+
+    50% {
+        transform: scale(1.2);
+        opacity: 1;
+    }
+
+    100% {
+        transform: scale(0.8);
+        opacity: 0.6;
+    }
 }
 
 /* Cards de Sugestão */
@@ -111,12 +137,22 @@
     animation: slideUp 0.4s ease-out;
 }
 
-@keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
 
 .context-badge {
     align-self: flex-start;
     background: rgba(139, 92, 246, 0.2);
-    color: #d8b4fe;
+    color: #bfdbfe;
     font-size: 0.7rem;
     text-transform: uppercase;
     padding: 4px 8px;
@@ -140,28 +176,49 @@
     border-radius: 12px;
     padding: 15px;
     backdrop-filter: blur(5px);
-    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
 .main-card {
-    border-color: #8b5cf6;
-    background: linear-gradient(145deg, rgba(30,41,59,0.8) 0%, rgba(15,23,42,0.9) 100%);
+    border-color: #3b82f6;
+    background: linear-gradient(145deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
 }
 
-.card-header h4 { margin: 0 0 10px 0; color: #c084fc; font-size: 0.9rem; }
-.card-content { font-size: 0.95rem; line-height: 1.5; color: #e2e8f0; white-space: pre-wrap; }
+.card-header h4 {
+    margin: 0 0 10px 0;
+    color: #93c5fd;
+    font-size: 0.9rem;
+}
+
+.card-content {
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: #e2e8f0;
+    white-space: pre-wrap;
+}
 
 .secondary-card {
-    border-color: rgba(255,255,255,0.1);
+    border-color: rgba(255, 255, 255, 0.1);
 }
-.secondary-card h4 { margin: 0 0 5px 0; color: #94a3b8; font-size: 0.8rem; text-transform: uppercase; }
-.secondary-card p { font-size: 0.9rem; color: #cbd5e1; margin: 0; }
+
+.secondary-card h4 {
+    margin: 0 0 5px 0;
+    color: #94a3b8;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+}
+
+.secondary-card p {
+    font-size: 0.9rem;
+    color: #cbd5e1;
+    margin: 0;
+}
 
 /* Botão de Ação (Usar Sugestão) */
 .primary-glass-btn {
     margin-top: 15px;
     width: 100%;
-    background: linear-gradient(90deg, #7c3aed, #db2777);
+    background: linear-gradient(90deg, #2563eb, #1e40af);
     border: none;
     padding: 10px;
     border-radius: 8px;
@@ -175,13 +232,25 @@
     transition: 0.2s;
     box-shadow: 0 0 15px rgba(124, 58, 237, 0.3);
 }
-.primary-glass-btn:hover { filter: brightness(1.1); transform: translateY(-2px); }
+
+.primary-glass-btn:hover {
+    filter: brightness(1.1);
+    transform: translateY(-2px);
+}
 
 /* --- FOOTER --- */
+/* --- FOOTER (Absoluto na parte inferior) --- */
 .copilot-footer {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
     padding: 15px;
-    border-top: 1px solid rgba(255,255,255,0.1);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
     text-align: center;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(10px);
+    z-index: 20;
 }
 
 .clear-btn {
@@ -192,6 +261,64 @@
     border-radius: 6px;
     font-size: 0.75rem;
     cursor: pointer;
+    transition: all 0.2s;
 }
 
-.clear-btn:hover { border-color: #ef4444; color: #ef4444;}
+.clear-btn:hover {
+    border-color: #ef4444;
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* --- DRAG & DROP VISUAL --- */
+.copilot-panel.drag-over {
+    border: 2px dashed #3b82f6;
+    /* Blue-500 */
+    background: rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 30px rgba(59, 130, 246, 0.2);
+}
+
+.copilot-panel.drag-over .copilot-body::before {
+    content: '🎯 Solte aqui para analisar';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 1.2rem;
+    color: #60a5fa;
+    /* Blue-400 */
+    font-weight: 600;
+    pointer-events: none;
+    animation: pulse 1.5s infinite;
+    z-index: 50;
+    background: rgba(15, 23, 42, 0.8);
+    padding: 10px 20px;
+    border-radius: 8px;
+    backdrop-filter: blur(4px);
+}
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    50% {
+        transform: scale(1.05);
+        opacity: 0.8;
+    }
+}
+
+@keyframes dragPulse {
+
+    0%,
+    100% {
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    50% {
+        transform: translate(-50%, -50%) scale(1.05);
+    }
+}

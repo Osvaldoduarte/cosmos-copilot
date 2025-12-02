@@ -1,0 +1,17 @@
+/Users/osvaldoduarte/PycharmProjects/Projeto_copilot_vendas/backend/main.py:1153: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+INFO:     Started server process [8057]
+INFO:     Waiting for application startup.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1764096482.595847  251758 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+E0000 00:00:1764096482.620303  251758 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+E0000 00:00:1764096482.625250  251758 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+/Users/osvaldoduarte/PycharmProjects/Projeto_copilot_vendas/backend/core/cerebro_ia.py:257: LangChainDeprecationWarning: The class `Chroma` was deprecated in LangChain 0.2.9 and will be removed in 1.0. An updated version of the class exists in the :class:`~langchain-chroma package and should be used instead. To use it run `pip install -U :class:`~langchain-chroma` and import as `from :class:`~langchain_chroma import Chroma``.
+  db = Chroma(client=client, collection_name="evolution", embedding_function=embed)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)

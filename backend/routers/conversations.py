@@ -127,3 +127,33 @@ async def send_message_alternative(
     background_tasks.add_task(service.save_message_from_webhook, message_obj)
 
     return {"status": "success", "message_id": msg_id}
+
+
+# Rota 5: Deletar conversa
+@router.delete(
+    "/{contact_id}",
+    summary="Apaga uma conversa (Memória e Redis).",
+    status_code=status.HTTP_200_OK
+)
+async def delete_conversation(
+        contact_id: str,
+        service: ConversationService = Depends(get_conversation_service),
+        current_user: User = Depends(security.get_current_active_user)
+):
+    # 1. Normaliza ID
+    if contact_id and "@" not in contact_id:
+        contact_id = f"{contact_id}@s.whatsapp.net"
+
+    # 2. Remove da Memória
+    deleted_memory = await service.delete_conversation(contact_id)
+
+    # 3. Remove do Redis (Importação Tardia)
+    try:
+        from main import redis_client
+        if redis_client:
+            redis_client.delete(f"chat:{contact_id}")
+            print(f"🗑️ Conversa {contact_id} removida do Redis.")
+    except Exception as e:
+        print(f"⚠️ Erro ao remover do Redis: {e}")
+
+    return {"status": "success", "message": f"Conversa {contact_id} apagada."}

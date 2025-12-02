@@ -1,6 +1,6 @@
 import os
 from typing import Optional, Dict
-from sqlalchemy import create_engine, Column, String, Boolean, ForeignKey, DateTime
+from sqlalchemy import create_engine, Column, String, Boolean, ForeignKey, DateTime, Integer
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship, joinedload
 from sqlalchemy.sql import func
 
@@ -41,6 +41,7 @@ class UserDB(Base):
     full_name = Column(String)
     hashed_password = Column(String)
     disabled = Column(Boolean, default=False)
+    tokens_used = Column(Integer, default=0)
 
     # Vinculo com a empresa
     tenant_id = Column(String, ForeignKey("public.tenants.id"))

@@ -55,6 +55,8 @@
   cursor: pointer;
   transition: background 0.2s;
   border-bottom: 1px solid transparent;
+  position: relative;
+  /* Para posicionar o menu de ações */
 }
 
 .conversation-item:hover {
@@ -84,6 +86,12 @@
 
 .conv-info {
   overflow: hidden;
+  flex: 1;
+  /* Ocupa o espaço restante */
+  min-width: 0;
+  /* Permite que o text-overflow funcione */
+  margin-right: 24px;
+  /* Espaço para o botão de ações não cobrir o texto */
 }
 
 .conv-info h4 {
@@ -328,8 +336,8 @@
   /* Flexbox é a chave para alinhar ícone e texto */
   align-items: center;
   /* Centraliza verticalmente */
-  background-color: var(--surface-dark-2);
-  border: 1px solid var(--border-color);
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   padding: 0 12px;
   height: 40px;
@@ -462,12 +470,15 @@ input.sidebar-search-input::placeholder {
   .copilot-sidebar {
     position: fixed;
     top: 0;
-    left: 0;
-    width: 100%;
-    max-width: 100%;
+    right: 0;
+    left: auto;
+    width: 80%;
+    max-width: 80%;
     height: 100vh;
     height: 100dvh;
     z-index: 200;
+    box-shadow: -5px 0 20px rgba(0, 0, 0, 0.5);
+    /* Sombra para dar profundidade */
   }
 
   /* Ajusta modais para mobile */
@@ -510,5 +521,92 @@ input.sidebar-search-input::placeholder {
     max-height: 100vh !important;
     border-radius: 0 !important;
     margin: 0;
+  }
+}
+
+/* --- CONVERSATION ACTIONS MENU (HOVER) --- */
+.conversation-actions-wrapper {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  /* Hidden by default */
+  z-index: 10;
+}
+
+.conversation-item:hover .conversation-actions-wrapper,
+.conversation-actions-wrapper:hover,
+.conversation-actions-wrapper.active {
+  display: block;
+  /* Show on hover or when active */
+}
+
+.action-dots-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.action-dots-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-light);
+}
+
+.action-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: var(--surface-dark-2);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  z-index: 50;
+  min-width: 120px;
+  overflow: hidden;
+  animation: fadeIn 0.1s ease-out;
+}
+
+.action-dropdown-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--text-light);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.action-dropdown-menu button:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.action-dropdown-menu button.danger-action {
+  color: #ef4444;
+}
+
+.action-dropdown-menu button.danger-action:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

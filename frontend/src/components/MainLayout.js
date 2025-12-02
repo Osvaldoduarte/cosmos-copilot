@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { useChat } from '../context/ChatContext';
+import { useChat, getDisplayName } from '../context/ChatContext';
 import { useAuth } from '../hooks/useAuth';
 import '../styles/layout.css';
 import ChatPanel from './ChatPanel';
 import CopilotPanel from './CopilotPanel';
+import DragDropZone from './DragDropZone';
 
 // Componentes
 import NewConversationModal from './NewConversationModal';
@@ -26,16 +27,79 @@ const Toast = ({ message, type, onClose }) => {
     );
 };
 
+// --- FUNÇÕES AUXILIARES DE BUSCA (FUZZY) ---
+const levenshteinDistance = (a, b) => {
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) { matrix[i] = [i]; }
+    for (let j = 0; j <= a.length; j++) { matrix[0][j] = j; }
+
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j] + 1
+                );
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+};
+
+const fuzzyMatch = (text, search) => {
+    if (!text) return false;
+    const cleanText = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const cleanSearch = search.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    // 1. Match exato (substring)
+    if (cleanText.includes(cleanSearch)) return true;
+
+    // 2. Match aproximado (Levenshtein) para buscas > 3 chars
+    if (cleanSearch.length > 3) {
+        const words = cleanText.split(/\s+/);
+        // Verifica se alguma palavra do texto é similar à busca
+        for (const word of words) {
+            if (levenshteinDistance(word, cleanSearch) <= 2) return true;
+        }
+    }
+    return false;
+};
+
 const MainLayout = ({ onLogout }) => {
     // --- ESTADOS E HOOKS ---
     const [notification, setNotification] = useState(null);
     const notify = (msg, type = 'success') => setNotification({ message: msg, type });
-    const { conversations, currentChat, selectChat, deselectChat, refreshConversations, isCopilotOpen } = useChat();
+    const { conversations, currentChat, selectChat, deselectChat, refreshConversations, isCopilotOpen, handleDeleteConversation, loadInitialConversations, isLoadingInitial } = useChat();
     const { token } = useAuth();
 
     // Controle de Modais
     const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
     const [showImportModal, setShowImportModal] = useState(false);
+    const [openMenuId, setOpenMenuId] = useState(null);
+
+    const handleMenuClick = (e, chatId) => {
+        e.stopPropagation();
+        setOpenMenuId(openMenuId === chatId ? null : chatId);
+    };
+
+    const handleDeleteChat = async (e, chatId, chatName) => {
+        e.stopPropagation();
+        if (window.confirm(`Tem certeza que deseja apagar a conversa com ${chatName}?`)) {
+            const success = await handleDeleteConversation(chatId);
+            if (success) {
+                setOpenMenuId(null);
+                notify("Conversa apagada", "success");
+            } else {
+                notify("Erro ao apagar conversa", "error");
+            }
+        }
+    };
 
     // Controle de Importação
     const [availableChats, setAvailableChats] = useState([]);
@@ -52,9 +116,9 @@ const MainLayout = ({ onLogout }) => {
     const [currentPage, setCurrentPage] = useState(1);
     const [hasMoreChats, setHasMoreChats] = useState(false);
 
-    // --- LÓGICA DE PESQUISA ---
+    // --- LÓGICA DE PESQUISA (COM FUZZY E MENSAGENS) ---
     const filteredConversations = conversations.filter(chat =>
-        chat.name?.toLowerCase().includes(searchTerm.toLowerCase())
+        fuzzyMatch(getDisplayName(chat), searchTerm) || fuzzyMatch(chat.lastMessage, searchTerm)
     );
 
     // Filtra chats disponíveis para importação - REMOVIDO, agora é no backend
@@ -191,20 +255,97 @@ const MainLayout = ({ onLogout }) => {
                 {/* LISTA DE CONVERSAS */}
                 <div className="conversations-list custom-scroll">
                     {filteredConversations.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '20px', color: '#64748b', fontSize: '0.9rem' }}>
-                            {searchTerm ? 'Nenhuma conversa encontrada.' : 'Nenhuma conversa iniciada.'}
+                        <div style={{
+                            textAlign: 'center',
+                            padding: '40px 20px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '16px',
+                            alignItems: 'center'
+                        }}>
+                            <div style={{ color: '#64748b', fontSize: '0.9rem' }}>
+                                {searchTerm ? 'Nenhuma conversa encontrada.' : 'Nenhuma conversa carregada.'}
+                            </div>
+                            {!searchTerm && (
+                                <button
+                                    onClick={loadInitialConversations}
+                                    disabled={isLoadingInitial}
+                                    style={{
+                                        padding: '12px 24px',
+                                        background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+                                        border: 'none',
+                                        borderRadius: '12px',
+                                        color: 'white',
+                                        fontSize: '0.9rem',
+                                        fontWeight: '500',
+                                        cursor: isLoadingInitial ? 'wait' : 'pointer',
+                                        opacity: isLoadingInitial ? 0.7 : 1,
+                                        transition: 'all 0.2s',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        if (!isLoadingInitial) {
+                                            e.target.style.transform = 'translateY(-2px)';
+                                            e.target.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
+                                        }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.target.style.transform = 'translateY(0)';
+                                        e.target.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
+                                    }}
+                                >
+                                    {isLoadingInitial ? (
+                                        <>
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ animation: 'spin 1s linear infinite' }}>
+                                                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.25" />
+                                                <path d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" fill="currentColor" />
+                                            </svg>
+                                            Carregando...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                                <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
+                                            </svg>
+                                            Carregar Conversas
+                                        </>
+                                    )}
+                                </button>
+                            )}
                         </div>
                     ) : (
                         filteredConversations.map(chat => (
                             <div key={chat.id} onClick={() => selectChat(chat)} className={`conversation-item ${currentChat?.id === chat.id ? 'active' : ''}`}>
-                                <div className="avatar-placeholder">{chat.name?.charAt(0)}</div>
+                                {chat.avatar_url ? (
+                                    <img src={chat.avatar_url} alt="" className="avatar-placeholder" style={{ objectFit: 'cover' }} />
+                                ) : (
+                                    <div className="avatar-placeholder">{getDisplayName(chat).charAt(0)}</div>
+                                )}
                                 <div className="conv-info">
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <h4>{chat.name}</h4>
+                                        <h4>{getDisplayName(chat)}</h4>
                                         {chat.lastUpdated && <span style={{ fontSize: '0.7rem', color: '#64748b' }}>{new Date(chat.lastUpdated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
                                     </div>
                                     <p>{chat.lastMessage || "..."}</p>
                                 </div>
+
+                                {/* ACTIONS MENU */}
+                                <div className={`conversation-actions-wrapper ${openMenuId === chat.id ? 'active' : ''}`}>
+                                    <button className="action-dots-btn" onClick={(e) => handleMenuClick(e, chat.id)}>
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
+                                    </button>
+                                    {openMenuId === chat.id && (
+                                        <div className="action-dropdown-menu">
+                                            <button onClick={(e) => handleDeleteChat(e, chat.id, getDisplayName(chat))} className="danger-action">
+                                                Apagar Conversa
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
                                 {chat.unreadCount > 0 && <div className="unread-badge-sidebar">{chat.unreadCount}</div>}
                             </div>
                         ))
@@ -313,6 +454,9 @@ const MainLayout = ({ onLogout }) => {
                     onConversationStart={refreshConversations} // Atualiza lista ao criar
                 />
             )}
+
+            {/* 🎯 Drop Zone para quando Copilot está fechado */}
+            <DragDropZone />
 
         </div>
     );

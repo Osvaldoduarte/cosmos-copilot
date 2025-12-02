@@ -202,6 +202,15 @@ const ManagementPage = () => {
         </div>
     );
 
+    const formatNumber = (num) => {
+        if (!num) return '0';
+        const n = parseInt(num);
+        if (isNaN(n)) return num;
+        if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+        if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+        return n.toString();
+    };
+
     return (
         <div className="dashboard-container">
             <div className="dashboard-content-wrapper">
@@ -228,7 +237,7 @@ const ManagementPage = () => {
                 <div className="kpi-grid">
                     <div className="kpi-card"><div className="kpi-icon blue"><Icons.Chart /></div><div><p className="kpi-label">Clientes</p><p className="kpi-value">{dashboardData?.globalMetrics.active_clients}</p></div></div>
                     <div className="kpi-card"><div className="kpi-icon green"><Icons.Clock /></div><div><p className="kpi-label">Tempo Médio</p><p className="kpi-value">{dashboardData?.globalMetrics.avg_response}</p></div></div>
-                    <div className="kpi-card"><div className="kpi-icon purple"><Icons.Brain /></div><div><p className="kpi-label">Uso IA</p><p className="kpi-value">{dashboardData?.globalMetrics.total_ai}</p></div></div>
+                    <div className="kpi-card"><div className="kpi-icon purple"><Icons.Brain /></div><div><p className="kpi-label">Uso IA</p><p className="kpi-value">{formatNumber(dashboardData?.globalMetrics.total_ai)}</p></div></div>
                     <div className="kpi-card"><div className="kpi-icon orange"><Icons.User /></div><div><p className="kpi-label">Equipe</p><p className="kpi-value">{dashboardData?.globalMetrics.total_team}</p></div></div>
                 </div>
 
@@ -338,7 +347,7 @@ const ManagementPage = () => {
                         <div className="user-stats-grid">
                             <div className="stat-box"><span>Clientes</span><strong>{selectedUser.metrics.clients_month}</strong></div>
                             <div className="stat-box"><span>Tempo</span><strong>{selectedUser.metrics.response}</strong></div>
-                            <div className="stat-box highlight"><span>Uso IA</span><strong>{selectedUser.metrics.ai_usage}</strong></div>
+                            <div className="stat-box highlight"><span>Uso IA</span><strong>{formatNumber(selectedUser.metrics.ai_usage)}</strong></div>
                         </div>
                         <div className="charts-row">
                             <div className="chart-container">

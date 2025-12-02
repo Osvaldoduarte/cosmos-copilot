@@ -41,9 +41,12 @@ class AIResponse(BaseModel):
     proximo_passo: Optional[str] = Field(description="Uma sugestão de ação ou pergunta futura.")
 
 
-class StageTransitionDecision(BaseModel):
-    proximo_stage_id: str
-    justificativa: str
+class SalesContextResponse(BaseModel):
+    summary: str = Field(description="Resumo curto da negociação até agora.")
+    sentiment: str = Field(description="Sentimento do cliente (Positivo, Neutro, Negativo, Irritado, Interessado).")
+    stage: str = Field(description="Etapa atual do funil (Ex: Prospecção, Qualificação, Proposta, Negociação, Fechamento).")
+    next_step: str = Field(description="O próximo passo lógico para avançar a venda.")
+    advice: str = Field(description="Conselho estratégico para o vendedor (o que evitar, o que focar).")
 
 
 # --- SERVIÇO PRINCIPAL ---
@@ -76,6 +79,26 @@ class SalesCopilot:
         """)
         self.chain = self.prompt | self.llm.with_structured_output(AIResponse)
 
+        # Prompt para Análise de Contexto
+        self.context_prompt = ChatPromptTemplate.from_template("""
+        Você é um Gerente de Vendas Sênior analisando uma conversa.
+
+        HISTÓRICO DA CONVERSA:
+        {history_context}
+
+        OBJETIVO: Analisar a situação atual e orientar o vendedor.
+
+        Responda ESTRITAMENTE neste formato JSON:
+        {{
+            "summary": "Resumo de 1 frase sobre o que está acontecendo.",
+            "sentiment": "Sentimento do cliente",
+            "stage": "Etapa do funil",
+            "next_step": "Ação recomendada",
+            "advice": "Conselho tático para o vendedor (ex: 'Cuidado, ele parece impaciente' ou 'Foque no benefício X')"
+        }}
+        """)
+        self.context_chain = self.context_prompt | self.llm.with_structured_output(SalesContextResponse)
+
     # 💡 CORREÇÃO AQUI: Argumentos renomeados para bater com o main.py
     def generate_sales_suggestions(self, query, full_conversation_history, current_stage_id, is_private_query,
                                    client_data):
@@ -106,6 +129,9 @@ class SalesCopilot:
                 internal_prompt = ChatPromptTemplate.from_template("""
                 Você é o VENAI, um assistente sênior de vendas.
                 
+                CONTEXTO DA CONVERSA (Últimas mensagens):
+                {history_context}
+                
                 CONTEXTO TÉCNICO (RAG):
                 {tech_context}
                 
@@ -113,6 +139,7 @@ class SalesCopilot:
                 "{query}"
                 
                 OBJETIVO: Responder a dúvida do vendedor de forma direta, técnica e informativa.
+                Use o histórico da conversa para entender o contexto da pergunta.
                 NÃO sugira uma resposta para o cliente.
                 NÃO sugira próximos passos.
                 Apenas responda a pergunta.
@@ -125,6 +152,7 @@ class SalesCopilot:
                 """)
                 chain = internal_prompt | self.llm.with_structured_output(AIResponse)
                 resp = chain.invoke({
+                    "history_context": history_text,
                     "tech_context": tech_text,
                     "query": query
                 })
@@ -148,6 +176,27 @@ class SalesCopilot:
             print_error(f"❌ [IA] Erro ao gerar resposta: {e}")
             traceback.print_exc()
             return {"status": "error", "suggestions": {"immediate_answer": "Erro ao processar IA."}}
+
+    def analyze_sales_context(self, full_conversation_history):
+        print_info(f"🤖 [IA] Analisando contexto de vendas...")
+        
+        history = full_conversation_history
+        # Pega mais contexto para análise (20 msgs)
+        recent_msgs = history[-20:] if history else []
+        history_text = "\n".join([f"{m.get('sender', '?').upper()}: {m.get('content', '')}" for m in recent_msgs])
+        
+        try:
+            resp = self.context_chain.invoke({
+                "history_context": history_text
+            })
+            
+            return {
+                "status": "success",
+                "analysis": resp.dict()
+            }
+        except Exception as e:
+            print_error(f"❌ [IA] Erro ao analisar contexto: {e}")
+            return {"status": "error", "analysis": None}
 
 
 # --- FACTORY ---

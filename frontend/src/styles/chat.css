@@ -141,6 +141,15 @@
     border-top-right-radius: 0;
 }
 
+/* 🎯 Drag-and-drop cursor for client messages */
+.message-client[draggable="true"] {
+    cursor: grab;
+}
+
+.message-client[draggable="true"]:active {
+    cursor: grabbing;
+}
+
 /* Metadados (Hora) */
 .message-metadata {
     display: flex;
@@ -241,10 +250,10 @@
 .copilot-trigger-tab {
     position: absolute;
     top: 50%;
-    right: 0;
+    right: -7px;
     /* Colado na borda direita */
     transform: translateY(-50%);
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    background: linear-gradient(135deg, #3b82f6, #3b82f6);
     padding: 12px 8px;
     border-radius: 8px 0 0 8px;
     /* Arredondado apenas na esquerda */
@@ -266,7 +275,7 @@
 }
 
 .copilot-trigger-tab:hover {
-    right: -5px;
+    right: 0;
     /* Desliza um pouco para fora */
     box-shadow: -6px 0 20px rgba(59, 130, 246, 0.5);
 }
@@ -927,4 +936,39 @@ input.chat-input-field:focus {
     font-size: 0.75rem;
     color: #8696a0;
     white-space: nowrap;
+}
+
+/* --- TRANSCRIÇÃO DE ÁUDIO --- */
+.audio-transcription-container {
+    margin-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 6px;
+}
+
+.transcription-toggle-btn {
+    background: transparent;
+    border: none;
+    color: #8696a0;
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    padding: 4px 0;
+    transition: color 0.2s;
+}
+
+.transcription-toggle-btn:hover {
+    color: #e9edef;
+}
+
+.transcription-text {
+    margin-top: 6px;
+    font-size: 0.9rem;
+    color: #e9edef;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 8px;
+    border-radius: 6px;
 }

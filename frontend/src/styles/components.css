@@ -306,3 +306,87 @@
   cursor: pointer;
   padding: 10px;
 }
+
+/* --- SALES CONTEXT BAR (HEADER) --- */
+.sales-context-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: 20px;
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.85rem;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 600px;
+  /* Prevent taking too much space */
+}
+
+.sales-stage-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.sales-stage-pill .dot {
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+.sales-next-step {
+  display: flex;
+  gap: 6px;
+  color: #e5e7eb;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-label {
+  color: #9ca3af;
+  font-weight: 500;
+}
+
+.step-value {
+  font-weight: 400;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+/* Mobile Adjustments */
+@media (max-width: 768px) {
+  .sales-context-bar {
+    display: none;
+    /* Hide on mobile to save space */
+  }
+}

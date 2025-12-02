@@ -9,10 +9,8 @@ import CustomAudioPlayer from './CustomAudioPlayer';
 import '../styles/chat.css';
 
 // --- CONSTANTES ---
-const EVOLUTION_URL = "http://34.29.184.203:8080";
-const EVOLUTION_API_KEY = "zrnxcjz8stbsk4qf6c0t6b";
-//const BACKEND_URL = 'http://127.0.0.1:8000'; // URL local do seu backend
-const BACKEND_URL = 'https://cosmos-backend-129644477821.us-central1.run.app'; // URL Cloud run
+const EVOLUTION_URL = process.env.REACT_APP_EVOLUTION_URL;
+const EVOLUTION_API_KEY = process.env.REACT_APP_EVOLUTION_API_KEY;
 
 // --- ÍCONES (Mantidos) ---
 const SendIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>);
@@ -22,9 +20,7 @@ const BrainTabIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill
 const ScrollDownIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M12 16.59l-6-6 1.41-1.41L12 13.77l4.59-4.59L18 10.59z"></path></svg>);
 const WelcomeIcon = () => (<svg width="80" height="80" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.5, marginBottom: '20px' }}><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>);
 const CloseIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>);
-const SendPlaneIcon = () => <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>;
 const MagicIcon = () => <span style={{ fontSize: '1.2em' }}>✨</span>;
-const ReplyIcon = () => <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" /></svg>;
 
 // --- CACHE GLOBAL DE MÍDIA (Evita re-download ao navegar) ---
 const MEDIA_CACHE = new Map();
@@ -167,7 +163,12 @@ function ChatPanel({ onToggleCopilot, onBack }) {
     handleRefreshProfile,   // 🔄 NOVO
     isMobile, // Estado para o botão de voltar
     isCopilotOpen,
-    handleToggleCopilot
+    handleToggleCopilot,
+    // Sales Context
+    salesContext,
+    analyzeSalesContext,
+    // 🎯 Drag-and-Drop state compartilhado
+    isDragging, setIsDragging, draggedMessage, setDraggedMessage
   } = useChat();
 
   // --- MEMO HOOK (Calcula o objeto da conversa ativa) ---
@@ -196,6 +197,36 @@ function ChatPanel({ onToggleCopilot, onBack }) {
   const handleAnalyzeFromMenu = () => {
     if (contextMenu.message && activeConversation) handleSuggestionRequest(contextMenu.message.content, activeConversation.id);
     setContextMenu({ visible: false, x: 0, y: 0, message: null });
+  };
+
+  // 🎯 Drag-and-Drop Handlers
+  const handleDragStart = (e, msg) => {
+    if (msg.sender !== 'cliente') {
+      e.preventDefault();
+      return;
+    }
+
+    // Define dados para transfer
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('text/plain', msg.content);
+    e.dataTransfer.setData('application/json', JSON.stringify({
+      content: msg.content,
+      sender: msg.sender,
+      timestamp: msg.timestamp
+    }));
+
+    // Atualiza estado compartilhado
+    setIsDragging(true);
+    setDraggedMessage(msg);
+
+    // Visual feedback
+    e.currentTarget.style.opacity = '0.5';
+  };
+
+  const handleDragEnd = (e) => {
+    setIsDragging(false);
+    setDraggedMessage(null);
+    e.currentTarget.style.opacity = '1';
   };
 
   const handleScroll = useCallback(() => {
@@ -293,30 +324,24 @@ function ChatPanel({ onToggleCopilot, onBack }) {
   // --- RENDERIZADOR DE CONTEÚDO ---
   const renderMessageContent = (msg) => {
     // Suporta tanto o formato antigo quanto o novo
-    const media_type = msg.media?.type || msg.media_type;
-    const media_url = msg.media?.url || msg.media_url;
-    const { content, raw_message } = msg;
+    const raw_message = msg.raw_message || null;
+    const content = msg.content;
+    const media_url = msg.media_url;
+    const media_type = msg.media_type;
 
-    // Se tem mídia, usa o componente AsyncMedia
-    if (media_type && (media_type === 'image' || media_type === 'audio' || media_type === 'video' || media_type === 'sticker')) {
-      // Determina o avatar para áudio
-      const isClient = msg.sender === 'cliente';
-      const avatarUrl = isClient ? finalAvatar : 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; // Placeholder para vendedor se não tiver
-
+    // --- IMAGEM / VÍDEO / STICKER ---
+    if (media_type && (media_type === 'image' || media_type === 'video' || media_type === 'sticker')) {
       return (
         <div className="media-wrapper">
           <AsyncMedia
-            media={{ type: media_type, url: media_url, avatar: avatarUrl }}
+            media={{ type: media_type, url: media_url }}
             rawMessage={raw_message}
             onImageClick={setLightboxImage}
           />
-          {/* Mostra caption se existir e não for o placeholder padrão */}
           {content &&
             content !== '📷 [Imagem]' &&
-            content !== '🎤 [Áudio]' &&
             content !== '🎥 [Vídeo]' &&
             content !== '[IMAGEM]' &&
-            content !== '[ÁUDIO]' &&
             content !== '[VÍDEO]' &&
             <p className="media-caption">{content}</p>
           }
@@ -324,9 +349,68 @@ function ChatPanel({ onToggleCopilot, onBack }) {
       );
     }
 
+    // --- ÁUDIO COM TRANSCRIÇÃO ---
+    if (media_type === 'audio') {
+      const isClient = msg.sender === 'cliente';
+      const avatarUrl = isClient ? finalAvatar : 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+
+      // Extrai transcrição se houver
+      let transcription = null;
+      if (content && content.includes('🎤 [Áudio]')) {
+        const parts = content.split('🎤 [Áudio]');
+        if (parts.length > 1 && parts[1].trim()) {
+          transcription = parts[1].trim();
+        }
+      }
+
+      return (
+        <div className="media-wrapper">
+          <AsyncMedia
+            media={{ type: 'audio', url: media_url, avatar: avatarUrl }}
+            rawMessage={raw_message}
+          />
+          {transcription && (
+            <AudioTranscription text={transcription} />
+          )}
+        </div>
+      );
+    }
+
     // Fallback: apenas texto
     return <p>{content}</p>;
   };
+
+  // --- COMPONENTE DE TRANSCRIÇÃO ---
+  const AudioTranscription = ({ text }) => {
+    const [isOpen, setIsOpen] = useState(false);
+
+    return (
+      <div className="audio-transcription-container">
+        <button
+          className="transcription-toggle-btn"
+          onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
+          title="Ver transcrição"
+        >
+          <span>Ver transcrição</span>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
+          >
+            <path fill="currentColor" d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
+          </svg>
+        </button>
+        {isOpen && (
+          <div className="transcription-text animate-fade-in">
+            {text}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+
 
   // --- VARIÁVEIS DE RENDERIZAÇÃO ---
   const basicName = formatContactName(activeConversation.name);
@@ -348,6 +432,26 @@ function ChatPanel({ onToggleCopilot, onBack }) {
           <img src={finalAvatar} alt="Avatar" className="chat-avatar" onError={(e) => e.target.src = DEFAULT_AVATAR_URL} />
           <div className="chat-header-info"><div className="chat-header-name">{finalName}</div></div>
         </div>
+
+        {/* 🧠 SALES CONTEXT BAR (NOVO) */}
+        {salesContext && (
+          <div className="sales-context-bar animate-fade-in" title={salesContext.advice}>
+            <div className="sales-stage-pill">
+              <span className="dot"></span>
+              {salesContext.stage}
+            </div>
+            <div className="sales-next-step">
+              <span className="step-label">Próximo:</span>
+              <span className="step-value">{salesContext.next_step}</span>
+            </div>
+          </div>
+        )}
+
+        <div className="header-actions">
+          <button className={`icon-button ${isCopilotOpen ? 'active' : ''}`} onClick={handleToggleCopilot} title="Copilot AI">
+            <MagicIcon />
+          </button>
+        </div>
       </div>
 
       <div className="chat-messages" ref={chatContainerRef}>
@@ -360,6 +464,9 @@ function ChatPanel({ onToggleCopilot, onBack }) {
               <div
                 key={msg.message_id || msg.id || i}
                 className={`message-bubble-row message-${msg.sender === 'cliente' ? 'client' : 'seller'}`}
+                draggable={msg.sender === 'cliente'}
+                onDragStart={(e) => handleDragStart(e, msg)}
+                onDragEnd={handleDragEnd}
                 onContextMenu={(e) => msg.sender === 'cliente' && handleMessageContextMenu(e, msg)}
                 onTouchStart={(e) => {
                   if (msg.sender !== 'cliente') return;

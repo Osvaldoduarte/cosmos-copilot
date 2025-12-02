@@ -30,6 +30,10 @@ export const ChatProvider = ({ children }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
+    // 🎯 Drag-and-Drop state (compartilhado)
+    const [isDragging, setIsDragging] = useState(false);
+    const [draggedMessage, setDraggedMessage] = useState(null);
+
     // Listener de resize para isMobile
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth <= 768);
@@ -38,14 +42,33 @@ export const ChatProvider = ({ children }) => {
     }, []);
 
     // --- ESTADOS DO COPILOT (IA) ---
-    const [suggestions, setSuggestions] = useState(null);
-    const [isCopilotLoading, setIsCopilotLoading] = useState(false);
+    // Sugestões agora são mapeadas por conversation ID
+    // --- ESTADOS DO COPILOT (IA) ---
+    // Sugestões agora são mapeadas por conversation ID
+    const [suggestionsByConversation, setSuggestionsByConversation] = useState({});
+
+    // 🚦 Fila de Carregamento (Loading por conversa)
+    const [loadingStates, setLoadingStates] = useState({}); // { [convId]: true/false }
+
     const [lastAnalyzedMessage, setLastAnalyzedMessage] = useState(null);
     const [queryType, setQueryType] = useState('analysis'); // 'analysis' ou 'internal'
 
+    // Helper para pegar sugestões da conversa ativa
+    const suggestions = activeConversationId ? (suggestionsByConversation[activeConversationId] || null) : null;
+
+    // Helper para saber se a conversa ativa está carregando
+    const isCopilotLoading = activeConversationId ? (loadingStates[activeConversationId] || false) : false;
+
     // --- CONFIG ---
     const { token, handleLogout } = useAuth();
-    const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    // --- CONFIGURAÇÃO DE AMBIENTE (LIGA/DESLIGA) ---
+    // 💡 COMENTE a linha 'IS_DEV = true' para ir para PRODUÇÃO
+    const IS_DEV = true; // (true = dev false = prod)
+
+    const DEV_URL = 'http://localhost:8000';
+    const PROD_URL = 'https://cosmos-backend-ocgvnigdzq-uc.a.run.app'; // URL da sua Cloud Run
+
+    const API_BASE_URL = IS_DEV ? DEV_URL : PROD_URL;
     const WS_URL = API_BASE_URL.replace(/^http/, 'ws') + '/ws';
 
     // Derivados
@@ -58,18 +81,26 @@ export const ChatProvider = ({ children }) => {
     // --- 1. FUNÇÕES DO COPILOT ---
 
     const clearSuggestions = useCallback(() => {
-        setSuggestions(null);
+        if (activeConversationId) {
+            setSuggestionsByConversation(prev => {
+                const updated = { ...prev };
+                delete updated[activeConversationId];
+                return updated;
+            });
+        }
         setLastAnalyzedMessage(null);
         setQueryType('analysis');
-    }, []);
+    }, [activeConversationId]);
 
     // Ação: Analisar mensagem do cliente (Botão direito ou Automático)
     const handleSuggestionRequest = async (text, conversationId) => {
         if (!text) return;
-        setIsCopilotLoading(true);
+
+        // Marca esta conversa como carregando
+        setLoadingStates(prev => ({ ...prev, [conversationId]: true }));
+
         setQueryType('analysis');
         setLastAnalyzedMessage(text);
-        setSuggestions(null);
 
         if (!isCopilotOpen) setIsCopilotOpen(true);
 
@@ -81,29 +112,76 @@ export const ChatProvider = ({ children }) => {
                 body: JSON.stringify({ conversation_id: conversationId, query: text, type: 'analysis' })
             });
             const data = await response.json();
-            if (data.status === 'success') setSuggestions(data.suggestions);
+            if (data.status === 'success') {
+                setSuggestionsByConversation(prev => ({
+                    ...prev,
+                    [conversationId]: data.suggestions
+                }));
+            }
         } catch (e) { console.error(e); }
-        finally { setIsCopilotLoading(false); }
+        finally {
+            setLoadingStates(prev => {
+                const newState = { ...prev };
+                delete newState[conversationId];
+                return newState;
+            });
+        }
     };
 
     // Ação: Pergunta interna (Input do Copilot)
     const handleInternalQuery = async (query) => {
-        if (!query) return;
-        setIsCopilotLoading(true);
+        if (!query || !activeConversationId) return;
+
+        const currentId = activeConversationId; // Captura ID atual
+        setLoadingStates(prev => ({ ...prev, [currentId]: true }));
+
         setQueryType('internal');
-        setSuggestions(null);
 
         try {
             const response = await fetch(`${API_BASE_URL}/ai/generate_suggestion`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ conversation_id: activeConversationId, query: query, type: 'internal' })
+                body: JSON.stringify({ conversation_id: currentId, query: query, type: 'internal' })
             });
             const data = await response.json();
-            if (data.status === 'success') setSuggestions(data.suggestions);
+            if (data.status === 'success') {
+                setSuggestionsByConversation(prev => ({
+                    ...prev,
+                    [currentId]: data.suggestions
+                }));
+            }
         } catch (e) { console.error(e); }
-        finally { setIsCopilotLoading(false); }
+        finally {
+            setLoadingStates(prev => {
+                const newState = { ...prev };
+                delete newState[currentId];
+                return newState;
+            });
+        }
     };
+
+    // --- ANÁLISE DE CONTEXTO DE VENDAS (Novo) ---
+    const [salesContext, setSalesContext] = useState(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+    const analyzeSalesContext = useCallback(async (conversationId) => {
+        if (!conversationId || !token) return;
+        setIsAnalyzing(true);
+        setSalesContext(null); // Limpa anterior
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/ai/analyze_context`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ conversation_id: conversationId })
+            });
+            const data = await response.json();
+            if (data.status === 'success') {
+                setSalesContext(data.analysis);
+            }
+        } catch (e) { console.error("Erro ao analisar contexto:", e); }
+        finally { setIsAnalyzing(false); }
+    }, [token, API_BASE_URL]);
 
     // --- 2. LÓGICA DE CHAT (WebSocket, Fetch, Send) ---
     // (Código mantido da versão anterior que já estava funcionando)
@@ -115,15 +193,35 @@ export const ChatProvider = ({ children }) => {
             if (response.status === 401) { handleLogout(); return; }
             if (response.ok) {
                 const data = await response.json();
-                setConversations(data.conversations || []);
+                let serverConvs = data.conversations || [];
+
+                // 🚀 Fallback: Se backend vier vazio, tenta reconstruir do cache local
+                if (serverConvs.length === 0 && messagesCache.current.size > 0) {
+                    console.log("⚠️ Backend vazio. Usando cache local para listar conversas.");
+                    const cachedConvs = Array.from(messagesCache.current.keys()).map(jid => {
+                        const msgs = messagesCache.current.get(jid);
+                        const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+                        return {
+                            id: jid,
+                            name: jid.split('@')[0], // Nome provisório
+                            avatar_url: '',
+                            lastMessage: lastMsg?.content || '',
+                            lastUpdated: lastMsg?.timestamp || Date.now(),
+                            unreadCount: 0
+                        };
+                    });
+                    // Ordena por mais recente
+                    serverConvs = cachedConvs.sort((a, b) => b.lastUpdated - a.lastUpdated);
+                }
+                setConversations(serverConvs);
             }
         } catch (error) { console.error("Erro conversas:", error); }
     }, [token, API_BASE_URL, handleLogout]);
 
+    // Load conversations once on mount
+    // Real-time updates come via WebSocket 'new_message' event
     useEffect(() => {
         fetchConversations();
-        const interval = setInterval(fetchConversations, 30000);
-        return () => clearInterval(interval);
     }, [fetchConversations]);
 
     // 🚀 Cache de mensagens para evitar re-fetch desnecessário
@@ -155,8 +253,8 @@ export const ChatProvider = ({ children }) => {
         if (messagesCache.current.has(conversationId)) {
             console.log(`📦 Usando cache para ${conversationId}`);
             setMessages(messagesCache.current.get(conversationId));
-            // Background refresh (opcional, para garantir consistência)
-            // return; 
+            // Cache hit: Evita requisição desnecessária se já temos dados
+            return;
         }
 
         try {
@@ -186,136 +284,163 @@ export const ChatProvider = ({ children }) => {
 
     useEffect(() => { if (activeConversationId) fetchMessages(activeConversationId); }, [activeConversationId, fetchMessages]);
 
-    // WebSocket Connection (Otimizado)
+    // WebSocket Connection with Reconnection Logic
     useEffect(() => {
         if (!token) return;
-        if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) return;
 
-        const ws = new WebSocket(WS_URL);
-        wsRef.current = ws;
+        let connectTimeout;
 
-        ws.onopen = () => console.log('🟢 WS Conectado');
-        ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
+        const connect = () => {
+            // Evita múltiplas conexões
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                return;
+            }
+            // Limpa conexão anterior se estiver em estado de conexão ou fechamento
+            if (wsRef.current) {
+                wsRef.current.close();
+            }
 
-                // 👍 Processar reações
-                if (data.type === 'message_reaction') {
-                    const { conversation_id, message_id, reaction, from } = data;
-                    if (activeConversationIdRef.current === conversation_id) {
-                        setMessages(prev => prev.map(m => {
-                            if (m.message_id === message_id) {
-                                const reactions = m.reactions || [];
-                                // Remove reação anterior da mesma pessoa
-                                const filtered = reactions.filter(r => r.from !== from);
-                                // Adiciona nova reação (se não for vazia)
-                                if (reaction) {
-                                    filtered.push({ emoji: reaction, from });
+            const ws = new WebSocket(WS_URL);
+            wsRef.current = ws;
+
+            ws.onopen = () => {
+                console.log('🟢 WS Conectado');
+            };
+
+            ws.onclose = (event) => {
+                console.log('⚪️ WS Desconectado:', event.code, event.reason);
+                wsRef.current = null;
+                // Tenta reconectar após um delay, exceto se o fechamento foi limpo (ex: logout)
+                if (event.code !== 1000) {
+                    clearTimeout(connectTimeout);
+                    connectTimeout = setTimeout(() => {
+                        console.log('🔁 Tentando reconectar WS...');
+                        connect();
+                    }, 5000); // Tenta reconectar a cada 5 segundos
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error('🔴 WS Erro:', error);
+                // Apenas fecha o socket. O 'onclose' handler cuidará da reconexão.
+                ws.close();
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+
+                    // 👍 Processar reações
+                    if (data.type === 'message_reaction') {
+                        const { conversation_id, message_id, reaction, from } = data;
+                        if (activeConversationIdRef.current === conversation_id) {
+                            setMessages(prev => prev.map(m => {
+                                if (m.message_id === message_id) {
+                                    const reactions = m.reactions || [];
+                                    const filtered = reactions.filter(r => r.from !== from);
+                                    if (reaction) {
+                                        filtered.push({ emoji: reaction, from });
+                                    }
+                                    return { ...m, reactions: filtered };
                                 }
-                                return { ...m, reactions: filtered };
+                                return m;
+                            }));
+                        }
+                        return;
+                    }
+
+                    // 👤 Processar atualização de perfil
+                    if (data.type === 'profile_updated') {
+                        const { conversation_id, custom_name, whatsapp_name, avatar_url } = data;
+                        setConversations(prev => prev.map(c => {
+                            if (c.id === conversation_id) {
+                                return {
+                                    ...c,
+                                    custom_name: custom_name !== undefined ? custom_name : c.custom_name,
+                                    whatsapp_name: whatsapp_name || c.whatsapp_name,
+                                    avatar_url: avatar_url || c.avatar_url
+                                };
                             }
-                            return m;
+                            return c;
                         }));
+                        console.log(`👤 Perfil atualizado: ${conversation_id}`);
+                        return;
                     }
-                    return;
-                }
 
-                // 👤 Processar atualização de perfil
-                if (data.type === 'profile_updated') {
-                    const { conversation_id, custom_name, whatsapp_name, avatar_url } = data;
-
-                    // Atualiza lista de conversas
-                    setConversations(prev => prev.map(c => {
-                        if (c.id === conversation_id) {
-                            return {
-                                ...c,
-                                custom_name: custom_name !== undefined ? custom_name : c.custom_name,
-                                whatsapp_name: whatsapp_name || c.whatsapp_name,
-                                avatar_url: avatar_url || c.avatar_url
-                            };
-                        }
-                        return c;
-                    }));
-
-                    console.log(`👤 Perfil atualizado: ${conversation_id}`);
-                    return;
-                }
-
-                if (data.type === 'new_message') {
-                    const { conversation_id, message } = data;
-                    // Atualiza mensagem se for a ativa
-                    if (activeConversationIdRef.current === conversation_id) {
-                        setMessages(prev => {
-                            // Verifica duplicação por ID exato
-                            if (prev.some(m => m.message_id === message.message_id)) return prev;
-
-                            // Verifica duplicação por conteúdo + sender + timestamp próximo
-                            // (previne duplicação de mensagens otimistas enviadas por nós)
-                            const isDuplicate = prev.some(m =>
-                                m.content === message.content &&
-                                m.sender === message.sender &&
-                                Math.abs(m.timestamp - message.timestamp) < 5 // 5 segundos de tolerância
-                            );
-
-                            let newMessages;
-                            if (isDuplicate) {
-                                // Remove mensagens temporárias e mantém apenas a real
-                                newMessages = prev.filter(m =>
-                                    !(m.content === message.content &&
-                                        m.sender === message.sender &&
-                                        m.message_id.startsWith('temp-'))
-                                ).concat([message]);
-                            } else {
-                                newMessages = [...prev, message];
+                    // 📖 Processar leitura de conversa
+                    if (data.type === 'conversation_read') {
+                        const { conversation_id } = data;
+                        setConversations(prev => prev.map(c => {
+                            if (c.id === conversation_id) {
+                                return { ...c, unreadCount: 0, unread: false };
                             }
-
-                            // 🚀 Atualiza cache também
-                            messagesCache.current.set(conversation_id, newMessages);
-                            saveCacheToStorage();
-                            return newMessages;
-                        });
+                            return c;
+                        }));
+                        return;
                     }
-                    // Atualiza lista
-                    setConversations(prev => {
-                        const idx = prev.findIndex(c => c.id === conversation_id);
 
-                        // Se não achar, busca tudo (fallback)
-                        if (idx === -1) { fetchConversations(); return prev; }
+                    if (data.type === 'new_message') {
+                        const { conversation_id, message } = data;
 
-                        const updated = [...prev];
-                        const existing = updated[idx];
-
-                        const conv = {
-                            ...existing,
-                            lastMessage: message.content,
-                            lastUpdated: message.timestamp * 1000,
-                            // Atualiza dados do perfil se vierem no payload
-                            name: data.name || existing.name,
-                            avatar_url: data.avatar_url || existing.avatar_url,
-                            unreadCount: data.unreadCount !== undefined ? data.unreadCount : (existing.unreadCount || 0)
-                        };
-
-                        if (message.sender === 'cliente' && activeConversationIdRef.current !== conversation_id) {
-                            conv.unread = true;
-                            // Se o backend já mandou a contagem, usa ela. Senão incrementa.
-                            if (data.unreadCount === undefined) {
-                                conv.unreadCount = (conv.unreadCount || 0) + 1;
-                            }
+                        // 1. Se for a conversa ativa, busca mensagens atualizadas do backend
+                        if (activeConversationIdRef.current === conversation_id) {
+                            console.log(`🔄 WS: Nova mensagem em ${conversation_id}, atualizando...`);
+                            fetchMessages(conversation_id);
                         }
 
-                        updated[idx] = conv;
-                        updated.sort((a, b) => b.lastUpdated - a.lastUpdated);
-                        return updated;
-                    });
+                        // 2. Atualiza a lista de conversas (para ordenar e mostrar unread)
+                        fetchConversations();
+
+                        // (Opcional) Mantemos a atualização otimista local se quiser, 
+                        // mas o fetch garante a verdade absoluta (incluindo transcrições que o backend fizer)
+                    }
+                } catch (e) {
+                    console.error("🔴 Erro ao processar mensagem WS:", e);
                 }
-            } catch (e) { }
+            };
         };
-        ws.onclose = () => { wsRef.current = null; };
-        return () => { if (wsRef.current) wsRef.current.close(); };
+
+        connect();
+
+        return () => {
+            clearTimeout(connectTimeout);
+            if (wsRef.current) {
+                // Remove o handler de reconexão para evitar que tente reconectar num unmount limpo
+                wsRef.current.onclose = () => {
+                    console.log('⚪️ WS Desconectado de forma limpa.');
+                };
+                wsRef.current.close(1000, "Component unmounting");
+            }
+        };
     }, [token, WS_URL, fetchConversations]);
 
     // --- 3. AÇÕES ---
-    const selectChat = (chat) => { setActiveConversationId(chat.id); };
+    const selectChat = async (chat) => {
+        setActiveConversationId(chat.id);
+
+        // Otimista: Marca como lido localmente imediatamente
+        setConversations(prev => prev.map(c => {
+            if (c.id === chat.id) {
+                return { ...c, unreadCount: 0, unread: false };
+            }
+            return c;
+        }));
+
+        // Marcar como lido no backend (Apenas se tiver não lidas)
+        if (chat.unreadCount > 0 || chat.unread) {
+            try {
+                await fetch(`${API_BASE_URL}/conversations/${encodeURIComponent(chat.id)}/mark_read`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+            } catch (error) {
+                console.error('Erro ao marcar como lido:', error);
+            }
+        }
+    };
     const deselectChat = () => { setActiveConversationId(null); };
 
     const handleSendMessage = async (text) => {
@@ -383,6 +508,19 @@ export const ChatProvider = ({ children }) => {
             if (response.ok) {
                 const data = await response.json();
                 console.log(`🔄 Perfil atualizado para ${jid}:`, data);
+
+                // 🚀 ATUALIZA A LISTA DE CONVERSAS TAMBÉM
+                setConversations(prev => prev.map(c => {
+                    if (c.id === jid) {
+                        return {
+                            ...c,
+                            name: data.pushName || data.name || c.name,
+                            avatar_url: data.picture || c.avatar_url
+                        };
+                    }
+                    return c;
+                }));
+
                 return true;
             }
             return false;
@@ -442,15 +580,52 @@ export const ChatProvider = ({ children }) => {
         }
     };
 
+    // 🚀 Carrega conversas iniciais (últimas 20 conversas, 40 mensagens cada)
+    const [isLoadingInitial, setIsLoadingInitial] = useState(false);
+
+    const loadInitialConversations = async () => {
+        if (!token) return false;
+        setIsLoadingInitial(true);
+
+        try {
+            console.log("🚀 Carregando conversas iniciais...");
+            const response = await fetch(`${API_BASE_URL}/sync/initial_load`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                console.log(`✅ ${data.loaded} conversas carregadas de ${data.total_available} disponíveis`);
+
+                // Atualiza lista de conversas
+                await fetchConversations();
+                return true;
+            }
+            return false;
+        } catch (e) {
+            console.error('Erro ao carregar conversas:', e);
+            return false;
+        } finally {
+            setIsLoadingInitial(false);
+        }
+    };
+
     // --- EXPORTS ---
     const value = {
         conversations, activeConversationId, currentChat, messages, setMessages,
         isCopilotOpen, setIsCopilotOpen, handleToggleCopilot: () => setIsCopilotOpen(p => !p), isMobile,
         selectChat, deselectChat, handleSendMessage, handleSendReaction, handleUpdateCustomName, handleRefreshProfile, handleDeleteConversation, handleStartConversation,
         fetchConversations, refreshConversations: fetchConversations,
+        // Initial Load
+        loadInitialConversations, isLoadingInitial,
         // Copilot
         suggestions, isCopilotLoading, lastAnalyzedMessage, queryType,
-        handleSuggestionRequest, handleInternalQuery, clearSuggestions
+        handleSuggestionRequest, handleInternalQuery, clearSuggestions,
+        // Sales Context
+        salesContext, isAnalyzing, analyzeSalesContext,
+        // Drag-and-Drop
+        isDragging, setIsDragging, draggedMessage, setDraggedMessage
     };
 
     return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
